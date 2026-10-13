@@ -330,37 +330,23 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         runOnUiThread {
             val rotationDegrees = getCurrentPhotoFragment()?.mCurrentRotationDegrees ?: 0
             binding.mediumViewerToolbar.menu.apply {
-                findItem(R.id.menu_show_on_map).isVisible = visibleBottomActions and BOTTOM_ACTION_SHOW_ON_MAP == 0
-                findItem(R.id.menu_slideshow).isVisible = visibleBottomActions and BOTTOM_ACTION_SLIDESHOW == 0
-                findItem(R.id.menu_properties).isVisible = visibleBottomActions and BOTTOM_ACTION_PROPERTIES == 0
-                findItem(R.id.menu_delete).isVisible = visibleBottomActions and BOTTOM_ACTION_DELETE == 0
-                findItem(R.id.menu_share).isVisible = visibleBottomActions and BOTTOM_ACTION_SHARE == 0
-                findItem(R.id.menu_edit).isVisible = visibleBottomActions and BOTTOM_ACTION_EDIT == 0 && !currentMedium.isSVG()
-                findItem(R.id.menu_rename).isVisible = visibleBottomActions and BOTTOM_ACTION_RENAME == 0 && !currentMedium.getIsInRecycleBin()
-                findItem(R.id.menu_rotate).isVisible = currentMedium.isImage() && visibleBottomActions and BOTTOM_ACTION_ROTATE == 0
-                findItem(R.id.menu_set_as).isVisible = visibleBottomActions and BOTTOM_ACTION_SET_AS == 0
-                findItem(R.id.menu_copy_to_clipboard).isVisible = currentMedium.isImage()
-                findItem(R.id.menu_copy_to).isVisible = visibleBottomActions and BOTTOM_ACTION_COPY == 0
-                findItem(R.id.menu_move_to).isVisible = visibleBottomActions and BOTTOM_ACTION_MOVE == 0
-                findItem(R.id.menu_save_as).isVisible = rotationDegrees != 0
-                findItem(R.id.menu_print).isVisible = currentMedium.isImage() || currentMedium.isRaw()
-                findItem(R.id.menu_resize).isVisible = visibleBottomActions and BOTTOM_ACTION_RESIZE == 0 && currentMedium.isImage()
-                findItem(R.id.menu_hide).isVisible =
-                    (!isRPlus() || isExternalStorageManager()) && !currentMedium.isHidden() && visibleBottomActions and BOTTOM_ACTION_TOGGLE_VISIBILITY == 0 && !currentMedium.getIsInRecycleBin()
+                findItem(R.id.menu_properties)?.isVisible = visibleBottomActions and BOTTOM_ACTION_PROPERTIES == 0
+                findItem(R.id.menu_delete)?.isVisible = visibleBottomActions and BOTTOM_ACTION_DELETE == 0
+                findItem(R.id.menu_share)?.isVisible = visibleBottomActions and BOTTOM_ACTION_SHARE == 0
+                findItem(R.id.menu_edit)?.isVisible = visibleBottomActions and BOTTOM_ACTION_EDIT == 0 && !currentMedium.isSVG()
+                findItem(R.id.menu_rename)?.isVisible = visibleBottomActions and BOTTOM_ACTION_RENAME == 0
+                findItem(R.id.menu_rotate)?.isVisible = currentMedium.isImage() && visibleBottomActions and BOTTOM_ACTION_ROTATE == 0
+                findItem(R.id.menu_copy_to_clipboard)?.isVisible = currentMedium.isImage()
+                findItem(R.id.menu_copy_to)?.isVisible = visibleBottomActions and BOTTOM_ACTION_COPY == 0
+                findItem(R.id.menu_move_to)?.isVisible = visibleBottomActions and BOTTOM_ACTION_MOVE == 0
+                findItem(R.id.menu_add_to_favorites)?.isVisible =
+                    !currentMedium.isFavorite && visibleBottomActions and BOTTOM_ACTION_TOGGLE_FAVORITE == 0
 
-                findItem(R.id.menu_unhide).isVisible =
-                    (!isRPlus() || isExternalStorageManager()) && currentMedium.isHidden() && visibleBottomActions and BOTTOM_ACTION_TOGGLE_VISIBILITY == 0 && !currentMedium.getIsInRecycleBin()
+                findItem(R.id.menu_remove_from_favorites)?.isVisible =
+                    currentMedium.isFavorite && visibleBottomActions and BOTTOM_ACTION_TOGGLE_FAVORITE == 0
 
-                findItem(R.id.menu_add_to_favorites).isVisible =
-                    !currentMedium.isFavorite && visibleBottomActions and BOTTOM_ACTION_TOGGLE_FAVORITE == 0 && !currentMedium.getIsInRecycleBin()
-
-                findItem(R.id.menu_remove_from_favorites).isVisible =
-                    currentMedium.isFavorite && visibleBottomActions and BOTTOM_ACTION_TOGGLE_FAVORITE == 0 && !currentMedium.getIsInRecycleBin()
-
-                findItem(R.id.menu_restore_file).isVisible = currentMedium.path.startsWith(recycleBinPath)
-                findItem(R.id.menu_create_shortcut).isVisible = true
-                findItem(R.id.menu_change_orientation).isVisible = rotationDegrees == 0 && visibleBottomActions and BOTTOM_ACTION_CHANGE_ORIENTATION == 0
-                findItem(R.id.menu_rotate).setShowAsAction(
+                findItem(R.id.menu_change_orientation)?.isVisible = rotationDegrees == 0 && visibleBottomActions and BOTTOM_ACTION_CHANGE_ORIENTATION == 0
+                findItem(R.id.menu_rotate)?.setShowAsAction(
                     if (rotationDegrees != 0) {
                         MenuItem.SHOW_AS_ACTION_ALWAYS
                     } else {
@@ -389,33 +375,23 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             }
 
             when (menuItem.itemId) {
-                R.id.menu_set_as -> setAs(getCurrentPath())
-                R.id.menu_slideshow -> initSlideshow()
                 R.id.menu_copy_to -> checkMediaManagementAndCopy(true)
                 R.id.menu_move_to -> moveFileTo()
                 R.id.menu_open_with -> openPath(getCurrentPath(), true)
-                R.id.menu_hide -> toggleFileVisibility(true)
-                R.id.menu_unhide -> toggleFileVisibility(false)
                 R.id.menu_share -> shareMediumPath(getCurrentPath())
                 R.id.menu_delete -> checkDeleteConfirmation()
                 R.id.menu_rename -> checkMediaManagementAndRename()
-                R.id.menu_print -> printFile()
                 R.id.menu_edit -> openEditor(getCurrentPath())
                 R.id.menu_properties -> showProperties()
-                R.id.menu_show_on_map -> showFileOnMap(getCurrentPath())
                 R.id.menu_rotate_right -> rotateImage(90)
                 R.id.menu_rotate_left -> rotateImage(-90)
                 R.id.menu_rotate_one_eighty -> rotateImage(180)
                 R.id.menu_add_to_favorites -> toggleFavorite()
                 R.id.menu_remove_from_favorites -> toggleFavorite()
-                R.id.menu_restore_file -> restoreFile()
                 R.id.menu_force_portrait -> toggleOrientation(SCREEN_ORIENTATION_PORTRAIT)
                 R.id.menu_force_landscape -> toggleOrientation(SCREEN_ORIENTATION_LANDSCAPE)
                 R.id.menu_force_landscape_reverse -> toggleOrientation(SCREEN_ORIENTATION_REVERSE_LANDSCAPE)
                 R.id.menu_default_orientation -> toggleOrientation(SCREEN_ORIENTATION_UNSPECIFIED)
-                R.id.menu_save_as -> saveImageAs()
-                R.id.menu_create_shortcut -> createShortcut()
-                R.id.menu_resize -> resizeImage()
                 R.id.menu_settings -> launchSettings()
                 R.id.menu_copy_to_clipboard -> copyImageToClipboard()
                 else -> return@setOnMenuItemClickListener false
@@ -931,21 +907,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
     }
 
-    private fun toggleFileVisibility(hide: Boolean, callback: (() -> Unit)? = null) {
-        toggleFileVisibility(getCurrentPath(), hide) {
-            val newFileName = it.getFilenameFromPath()
-            binding.mediumViewerToolbar.title = newFileName
-
-            getCurrentMedium()!!.apply {
-                name = newFileName
-                path = it
-                getCurrentMedia()[mPos] = this
-            }
-
-            refreshMenuItems()
-            callback?.invoke()
-        }
-    }
 
     private fun rotateImage(degrees: Int) {
         val currentPath = getCurrentPath()
@@ -983,54 +944,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
     }
 
-    private fun saveImageAs() {
-        val currPath = getCurrentPath()
-        SaveAsDialog(this, currPath, false) {
-            val newPath = it
-            handleSAFDialog(it) {
-                if (!it) {
-                    return@handleSAFDialog
-                }
 
-                toast(org.fossify.commons.R.string.saving)
-                ensureBackgroundThread {
-                    val photoFragment = getCurrentPhotoFragment() ?: return@ensureBackgroundThread
-                    saveRotatedImageToFile(currPath, newPath, photoFragment.mCurrentRotationDegrees, true) {
-                        toast(org.fossify.commons.R.string.file_saved)
-                        getCurrentPhotoFragment()?.mCurrentRotationDegrees = 0
-                        refreshMenuItems()
-                    }
-                }
-            }
-        }
-    }
-
-    private fun createShortcut() {
-        val manager = getSystemService(ShortcutManager::class.java)
-        if (manager.isRequestPinShortcutSupported) {
-            val medium = getCurrentMedium() ?: return
-            val path = medium.path
-            val drawable = resources.getDrawable(R.drawable.shortcut_image).mutate()
-            getShortcutImage(path, drawable) {
-                val intent = Intent(this, ViewPagerActivity::class.java).apply {
-                    putExtra(PATH, path)
-                    putExtra(SHOW_ALL, config.showAll)
-                    putExtra(SHOW_FAVORITES, path == FAVORITES)
-                    putExtra(SHOW_RECYCLE_BIN, path == RECYCLE_BIN)
-                    action = Intent.ACTION_VIEW
-                    flags = flags or Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                }
-
-                val shortcut = ShortcutInfo.Builder(this, path)
-                    .setShortLabel(medium.name)
-                    .setIcon(Icon.createWithBitmap(drawable.convertToBitmap()))
-                    .setIntent(intent)
-                    .build()
-
-                manager.requestPinShortcut(shortcut, null)
-            }
-        }
-    }
 
     private fun getCurrentPhotoFragment() = getCurrentFragment() as? PhotoFragment
 
@@ -1126,41 +1040,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             updateBottomActionIcons(currentMedium)
         }
 
-        binding.bottomActions.bottomSlideshow.beVisibleIf(visibleBottomActions and BOTTOM_ACTION_SLIDESHOW != 0)
-        binding.bottomActions.bottomSlideshow.setOnLongClickListener { toast(R.string.slideshow); true }
-        binding.bottomActions.bottomSlideshow.setOnClickListener {
-            initSlideshow()
-        }
-
-        binding.bottomActions.bottomShowOnMap.beVisibleIf(visibleBottomActions and BOTTOM_ACTION_SHOW_ON_MAP != 0)
-        binding.bottomActions.bottomShowOnMap.setOnLongClickListener { toast(R.string.show_on_map); true }
-        binding.bottomActions.bottomShowOnMap.setOnClickListener {
-            showFileOnMap(getCurrentPath())
-        }
-
-        binding.bottomActions.bottomToggleFileVisibility.beVisibleIf(visibleBottomActions and BOTTOM_ACTION_TOGGLE_VISIBILITY != 0)
-        binding.bottomActions.bottomToggleFileVisibility.setOnLongClickListener {
-            toast(if (currentMedium?.isHidden() == true) org.fossify.commons.R.string.unhide else org.fossify.commons.R.string.hide); true
-        }
-
-        binding.bottomActions.bottomToggleFileVisibility.setOnClickListener {
-            currentMedium?.apply {
-                toggleFileVisibility(!isHidden()) {
-                    updateBottomActionIcons(currentMedium)
-                }
-            }
-        }
-
-        binding.bottomActions.bottomRename.beVisibleIf(visibleBottomActions and BOTTOM_ACTION_RENAME != 0 && currentMedium?.getIsInRecycleBin() == false)
+        binding.bottomActions.bottomRename.beVisibleIf(visibleBottomActions and BOTTOM_ACTION_RENAME != 0)
         binding.bottomActions.bottomRename.setOnLongClickListener { toast(org.fossify.commons.R.string.rename); true }
         binding.bottomActions.bottomRename.setOnClickListener {
             checkMediaManagementAndRename()
-        }
-
-        binding.bottomActions.bottomSetAs.beVisibleIf(visibleBottomActions and BOTTOM_ACTION_SET_AS != 0)
-        binding.bottomActions.bottomSetAs.setOnLongClickListener { toast(org.fossify.commons.R.string.set_as); true }
-        binding.bottomActions.bottomSetAs.setOnClickListener {
-            setAs(getCurrentPath())
         }
 
         binding.bottomActions.bottomCopy.beVisibleIf(visibleBottomActions and BOTTOM_ACTION_COPY != 0)
@@ -1174,12 +1057,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         binding.bottomActions.bottomMove.setOnClickListener {
             moveFileTo()
         }
-
-        binding.bottomActions.bottomResize.beVisibleIf(visibleBottomActions and BOTTOM_ACTION_RESIZE != 0 && currentMedium?.isImage() == true)
-        binding.bottomActions.bottomResize.setOnLongClickListener { toast(org.fossify.commons.R.string.resize); true }
-        binding.bottomActions.bottomResize.setOnClickListener {
-            resizeImage()
-        }
     }
 
     private fun updateBottomActionIcons(medium: Medium?) {
@@ -1190,10 +1067,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         val favoriteIcon =
             if (medium.isFavorite) org.fossify.commons.R.drawable.ic_star_vector else org.fossify.commons.R.drawable.ic_star_outline_vector
         binding.bottomActions.bottomFavorite.setImageResource(favoriteIcon)
-
-        val hideIcon =
-            if (medium.isHidden()) org.fossify.commons.R.drawable.ic_unhide_vector else org.fossify.commons.R.drawable.ic_hide_vector
-        binding.bottomActions.bottomToggleFileVisibility.setImageResource(hideIcon)
 
         binding.bottomActions.bottomRotate.beVisibleIf(config.visibleBottomActions and BOTTOM_ACTION_ROTATE != 0 && getCurrentMedium()?.isImage() == true)
         binding.bottomActions.bottomChangeOrientation.setImageResource(getChangeOrientationIcon())
@@ -1216,73 +1089,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
     }
 
-    private fun printFile() {
-        sendPrintIntent(getCurrentPath())
-    }
-
-    private fun sendPrintIntent(path: String) {
-        val printHelper = PrintHelper(this)
-        printHelper.scaleMode = PrintHelper.SCALE_MODE_FIT
-        printHelper.orientation = SCREEN_ORIENTATION_PORTRAIT
-
-        try {
-            val resolution = path.getImageResolution(this)
-            if (resolution == null) {
-                toast(org.fossify.commons.R.string.unknown_error_occurred)
-                return
-            }
-
-            var requestedWidth = resolution.x
-            var requestedHeight = resolution.y
-
-            if (requestedWidth >= MAX_PRINT_SIDE_SIZE) {
-                requestedHeight = (requestedHeight / (requestedWidth / MAX_PRINT_SIDE_SIZE.toFloat())).toInt()
-                requestedWidth = MAX_PRINT_SIDE_SIZE
-            } else if (requestedHeight >= MAX_PRINT_SIDE_SIZE) {
-                requestedWidth = (requestedWidth / (requestedHeight / MAX_PRINT_SIDE_SIZE.toFloat())).toInt()
-                requestedHeight = MAX_PRINT_SIDE_SIZE
-            }
-
-            val options = RequestOptions()
-                .skipMemoryCache(true)
-                .diskCacheStrategy(DiskCacheStrategy.NONE)
-
-            Glide.with(this)
-                .asBitmap()
-                .load(path)
-                .apply(options)
-                .listener(object : RequestListener<Bitmap> {
-                    override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Bitmap>, isFirstResource: Boolean): Boolean {
-                        showErrorToast(e?.localizedMessage ?: "")
-                        return false
-                    }
-
-                    override fun onResourceReady(
-                        bitmap: Bitmap,
-                        model: Any,
-                        target: Target<Bitmap>,
-                        dataSource: DataSource,
-                        isFirstResource: Boolean,
-                    ): Boolean {
-                        printHelper.printBitmap(path.getFilenameFromPath(), bitmap)
-                        return false
-                    }
-                }).submit(requestedWidth, requestedHeight)
-        } catch (e: Exception) {
-        }
-    }
-
-    private fun restoreFile() {
-        restoreRecycleBinPath(getCurrentPath()) {
-            refreshViewPager()
-        }
-    }
-
-    private fun resizeImage() {
-        val oldPath = getCurrentPath()
-        launchResizeImageDialog(oldPath)
-    }
-
     private fun copyImageToClipboard() {
         val clipboard = getSystemService(ClipboardManager::class.java) as ClipboardManager
 
@@ -1297,12 +1103,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
 
         handleMediaManagementPrompt {
-            if (config.isDeletePasswordProtectionOn) {
-                handleDeletePasswordProtection {
-                    deleteConfirmed(config.tempSkipRecycleBin)
-                }
-            } else if (config.tempSkipDeleteConfirmation || config.skipDeleteConfirmation) {
-                deleteConfirmed(config.tempSkipRecycleBin)
+            if (config.tempSkipDeleteConfirmation || config.skipDeleteConfirmation) {
+                deleteConfirmed()
             } else {
                 askConfirmDelete()
             }
@@ -1314,29 +1116,17 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         val size = fileDirItem.getProperSize(this, countHidden = true).formatSize()
         val filename = "\"${getCurrentPath().getFilenameFromPath()}\""
         val filenameAndSize = "$filename ($size)"
-        val isInRecycleBin = getCurrentMedium()!!.getIsInRecycleBin()
 
-        val baseString = if (config.useRecycleBin && !config.tempSkipRecycleBin && !isInRecycleBin) {
-            org.fossify.commons.R.string.move_to_recycle_bin_confirmation
-        } else {
-            org.fossify.commons.R.string.deletion_confirmation
-        }
-
+        val baseString = org.fossify.commons.R.string.deletion_confirmation
         val message = String.format(resources.getString(baseString), filenameAndSize)
-        val showSkipRecycleBinOption = config.useRecycleBin && !isInRecycleBin
 
-        DeleteWithRememberDialog(this, message, showSkipRecycleBinOption) { remember, skipRecycleBin ->
+        DeleteWithRememberDialog(this, message, false) { remember, _ ->
             config.tempSkipDeleteConfirmation = remember
-
-            if (remember) {
-                config.tempSkipRecycleBin = skipRecycleBin
-            }
-
-            deleteConfirmed(skipRecycleBin)
+            deleteConfirmed()
         }
     }
 
-    private fun deleteConfirmed(skipRecycleBin: Boolean) {
+    private fun deleteConfirmed() {
         val currentMedium = getCurrentMedium()
         val path = currentMedium?.path ?: return
         if (getIsPathDirectory(path) || !path.isMediaFile()) {
@@ -1344,41 +1134,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
 
         val fileDirItem = currentMedium.toFileDirItem()
-        if (config.useRecycleBin && !skipRecycleBin && !getCurrentMedium()!!.getIsInRecycleBin()) {
-            checkManageMediaOrHandleSAFDialogSdk30(fileDirItem.path) {
-                if (!it) {
-                    return@checkManageMediaOrHandleSAFDialogSdk30
-                }
-
-                mIgnoredPaths.add(fileDirItem.path)
-                val media = mMediaFiles.filter { !mIgnoredPaths.contains(it.path) } as ArrayList<Medium>
-                if (media.isNotEmpty()) {
-                    runOnUiThread {
-                        refreshUI(media, false)
-                    }
-                }
-
-                if (media.size == 1) {
-                    onPageSelected(0)
-                }
-
-                movePathsInRecycleBin(arrayListOf(path)) {
-                    if (it) {
-                        tryDeleteFileDirItem(fileDirItem, false, false) {
-                            mIgnoredPaths.remove(fileDirItem.path)
-                            if (media.isEmpty()) {
-                                deleteDirectoryIfEmpty()
-                                finish()
-                            }
-                        }
-                    } else {
-                        toast(org.fossify.commons.R.string.unknown_error_occurred)
-                    }
-                }
-            }
-        } else {
-            handleDeletion(fileDirItem)
-        }
+        handleDeletion(fileDirItem)
     }
 
     private fun handleDeletion(fileDirItem: FileDirItem) {

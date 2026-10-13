@@ -209,7 +209,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             config.tempSkipDeleteConfirmation = false
             config.tempSkipRecycleBin = false
             removeTempFolder()
-            checkRecycleBinItems()
             startNewPhotoFetcher()
         }
 
@@ -244,11 +243,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             config.wereFavoritesPinned = true
         }
 
-        if (!config.wasRecycleBinPinned) {
-            config.addPinnedFolders(hashSetOf(RECYCLE_BIN))
-            config.wasRecycleBinPinned = true
-            config.saveFolderGrouping(SHOW_ALL, GROUP_BY_DATE_TAKEN_DAILY or GROUP_DESCENDING)
-        }
+        config.removePinnedFolders(hashSetOf(RECYCLE_BIN))
 
         if (!config.wasSVGShowingHandled) {
             config.wasSVGShowingHandled = true
@@ -452,8 +447,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             binding.mainMenu.requireToolbar().menu.apply {
                 findItem(R.id.column_count).isVisible = config.viewTypeFolders == VIEW_TYPE_GRID
                 findItem(R.id.set_as_default_folder).isVisible = !config.defaultFolder.isEmpty()
-                findItem(R.id.open_recycle_bin).isVisible =
-                    config.useRecycleBin && !config.showRecycleBinAtFolders
                 findItem(R.id.more_apps_from_us).isVisible =
                     resources.getBoolean(org.fossify.commons.R.bool.is_google_play_build)
             }
@@ -497,7 +490,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             when (menuItem.itemId) {
                 R.id.sort -> showSortingDialog()
                 R.id.filter -> showFilterMediaDialog()
-                R.id.open_camera -> launchCamera()
                 R.id.show_all -> showAllMedia()
                 R.id.change_view_type -> changeViewType()
                 R.id.temporarily_show_hidden -> tryToggleTemporarilyShowHidden()
@@ -505,7 +497,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 R.id.temporarily_show_excluded -> tryToggleTemporarilyShowExcluded()
                 R.id.stop_showing_excluded -> tryToggleTemporarilyShowExcluded()
                 R.id.create_new_folder -> createNewFolder()
-                R.id.open_recycle_bin -> openRecycleBin()
                 R.id.column_count -> changeColumnCount()
                 R.id.set_as_default_folder -> setAsDefaultFolder()
                 R.id.more_apps_from_us -> launchMoreAppsFromUsIntent()
@@ -759,12 +750,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             }
 
             else -> {
-                val baseString = if (config.useRecycleBin && !config.tempSkipRecycleBin) {
-                    org.fossify.commons.R.plurals.moving_items_into_bin
-                } else {
-                    org.fossify.commons.R.plurals.delete_items
-                }
-
+                val baseString = org.fossify.commons.R.plurals.delete_items
                 toast(
                     msg = resources.getQuantityString(
                         baseString, fileDirItems.size, fileDirItems.size
@@ -789,20 +775,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             }?.mapTo(itemsToDelete) { it.toFileDirItem(applicationContext) }
         }
 
-        if (config.useRecycleBin && !config.tempSkipRecycleBin) {
-            val pathsToDelete = ArrayList<String>()
-            itemsToDelete.mapTo(pathsToDelete) { it.path }
-
-            movePathsInRecycleBin(pathsToDelete) {
-                if (it) {
-                    deleteFilteredFileDirItems(itemsToDelete, folders)
-                } else {
-                    toast(org.fossify.commons.R.string.unknown_error_occurred)
-                }
-            }
-        } else {
-            deleteFilteredFileDirItems(itemsToDelete, folders)
-        }
+        deleteFilteredFileDirItems(itemsToDelete, folders)
     }
 
     private fun deleteFilteredFileDirItems(
@@ -1138,24 +1111,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         val lastModifieds = mLastMediaFetcher!!.getLastModifieds()
         val dateTakens = mLastMediaFetcher!!.getDateTakens()
 
-        if (
-            config.showRecycleBinAtFolders
-            && !config.showRecycleBinLast
-            && !dirs.map { it.path }.contains(RECYCLE_BIN)
-        ) {
-            try {
-                if (mediaDB.getDeletedMediaCount() > 0) {
-                    val recycleBin = Directory().apply {
-                        path = RECYCLE_BIN
-                        name = getString(org.fossify.commons.R.string.recycle_bin)
-                        location = LOCATION_INTERNAL
-                    }
-
-                    dirs.add(0, recycleBin)
-                }
-            } catch (ignored: Exception) {
-            }
-        }
 
         if (dirs.map { it.path }.contains(FAVORITES)) {
             if (mediaDB.getFavoritesCount() > 0) {
@@ -1288,16 +1243,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         val foldersToScan = mLastMediaFetcher!!.getFoldersToScan()
         foldersToScan.remove(FAVORITES)
         foldersToScan.add(0, FAVORITES)
-        if (config.showRecycleBinAtFolders) {
-            if (foldersToScan.contains(RECYCLE_BIN)) {
-                foldersToScan.remove(RECYCLE_BIN)
-                foldersToScan.add(0, RECYCLE_BIN)
-            } else {
-                foldersToScan.add(0, RECYCLE_BIN)
-            }
-        } else {
-            foldersToScan.remove(RECYCLE_BIN)
-        }
+        foldersToScan.remove(RECYCLE_BIN)
 
         dirs.filterNot { it.path == RECYCLE_BIN || it.path == FAVORITES }.forEach {
             foldersToScan.remove(it.path)
@@ -1581,14 +1527,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             }
         }
 
-        if (config.useRecycleBin) {
-            try {
-                val binFolder = dirs.firstOrNull { it.path == RECYCLE_BIN }
-                if (binFolder != null && mediaDB.getDeletedMedia().isEmpty()) {
-                    invalidDirs.add(binFolder)
-                }
-            } catch (ignored: Exception) {
-            }
+        val binFolder = dirs.firstOrNull { it.path == RECYCLE_BIN }
+        if (binFolder != null) {
+            invalidDirs.add(binFolder)
         }
 
         if (invalidDirs.isNotEmpty()) {
@@ -1635,27 +1576,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 }
             }
         }, LAST_MEDIA_CHECK_PERIOD)
-    }
-
-    private fun checkRecycleBinItems() {
-        if (config.useRecycleBin && config.lastBinCheck < System.currentTimeMillis() - DAY_SECONDS * 1000) {
-            config.lastBinCheck = System.currentTimeMillis()
-            Handler().postDelayed({
-                ensureBackgroundThread {
-                    try {
-                        val filesToDelete = mediaDB.getOldRecycleBinItems(
-                            System.currentTimeMillis() - MONTH_MILLISECONDS
-                        )
-                        filesToDelete.forEach {
-                            if (File(it.path.replaceFirst(RECYCLE_BIN, recycleBinPath)).delete()) {
-                                mediaDB.deleteMediumPath(it.path)
-                            }
-                        }
-                    } catch (e: Exception) {
-                    }
-                }
-            }, 3000L)
-        }
     }
 
     // exclude probably unwanted folders, for example facebook stickers are split between hundreds of separate folders like
