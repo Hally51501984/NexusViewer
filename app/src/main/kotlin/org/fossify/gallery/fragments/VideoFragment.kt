@@ -70,6 +70,7 @@ import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.gallery.R
 import org.fossify.gallery.activities.BaseViewerActivity
 import org.fossify.gallery.activities.VideoActivity
+import org.fossify.gallery.activities.ViewPagerActivity
 import org.fossify.gallery.databinding.PagerVideoItemBinding
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.getActionBarHeight
@@ -79,10 +80,15 @@ import org.fossify.gallery.extensions.getFriendlyMessage
 import org.fossify.gallery.extensions.launchGesturePlayer
 import org.fossify.gallery.extensions.parseFileChannel
 import org.fossify.gallery.helpers.Config
+import org.fossify.gallery.helpers.EXOPLAYER_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS
+import org.fossify.gallery.helpers.EXOPLAYER_BUFFER_FOR_PLAYBACK_MS
 import org.fossify.gallery.helpers.EXOPLAYER_MAX_BUFFER_MS
 import org.fossify.gallery.helpers.EXOPLAYER_MIN_BUFFER_MS
 import org.fossify.gallery.helpers.FAST_FORWARD_VIDEO_MS
 import org.fossify.gallery.helpers.MEDIUM
+import org.fossify.gallery.helpers.REPEAT_FOLDER
+import org.fossify.gallery.helpers.REPEAT_OFF
+import org.fossify.gallery.helpers.REPEAT_ONE
 import org.fossify.gallery.helpers.SHOULD_INIT_FRAGMENT
 import org.fossify.gallery.interfaces.PlaybackSpeedListener
 import org.fossify.gallery.models.Medium
@@ -130,6 +136,13 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     private var mOriginalPlaybackSpeed = 1f
     private var mIsLongPressActive = false
     private var mHasAudio = true
+
+    private var mIsSeeking = false
+    private var mIsTouchInCenter = false
+    private var mSeekStartX = 0f
+    private var mSeekStartY = 0f
+    private var mSeekStartPosition = 0L
+    private var mTargetSeekPosition = 0L
 
     private val mTouchHoldRunnable = Runnable {
         mView.parent.requestDisallowInterceptTouchEvent(true)
@@ -180,6 +193,9 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
             bottomVideoTimeHolder.videoToggleMute.setOnClickListener {
                 mConfig.muteVideos = !mConfig.muteVideos
                 updatePlayerMuteState(showToast = true)
+            }
+            bottomVideoTimeHolder.videoToggleRepeat.setOnClickListener {
+                cycleRepeatMode()
             }
 
             videoSurfaceFrame.controller.settings.swallowDoubleTaps = true
@@ -243,12 +259,70 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
             }
 
             videoSurfaceFrame.setOnTouchListener { view, event ->
+                val screenWidth = resources.displayMetrics.widthPixels.toFloat()
                 if (videoSurfaceFrame.controller.state.zoom == 1f) {
                     handleEvent(event)
+
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> {
+                            val downRawX = event.rawX
+                            val isLeftEdge = downRawX < screenWidth * 0.25f
+                            val isRightEdge = downRawX > screenWidth * 0.75f
+                            mIsTouchInCenter = (!isLeftEdge && !isRightEdge)
+
+                            mSeekStartX = event.x
+                            mSeekStartY = event.y
+                            mIsSeeking = false
+                            mSeekStartPosition = mExoPlayer?.currentPosition ?: mCurrTime
+                            mTargetSeekPosition = mSeekStartPosition
+                        }
+                        MotionEvent.ACTION_MOVE -> {
+                            if (mIsTouchInCenter) {
+                                val dx = event.x - mSeekStartX
+                                val dy = event.y - mSeekStartY
+                                if (!mIsSeeking && !mIsLongPressActive && Math.abs(dx) > mTouchSlop && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                                    mIsSeeking = true
+                                    mTimerHandler.removeCallbacks(mTouchHoldRunnable)
+                                    videoSurfaceFrame.parent?.requestDisallowInterceptTouchEvent(true)
+                                }
+
+                                if (mIsSeeking) {
+                                    val maxSeekRange = (mDuration / 3).coerceIn(15_000L, 180_000L).coerceAtLeast(10_000L)
+                                    val seekDeltaMs = ((dx / (screenWidth * 0.5f)) * maxSeekRange).toLong()
+                                    mTargetSeekPosition = (mSeekStartPosition + seekDeltaMs).coerceIn(0L, mDuration)
+
+                                    val deltaSec = (mTargetSeekPosition - mSeekStartPosition) / 1000
+                                    val sign = if (deltaSec >= 0) "+$deltaSec" else "$deltaSec"
+                                    val currentFormatted = mTargetSeekPosition.getFormattedDuration()
+                                    val durationFormatted = mDuration.getFormattedDuration()
+                                    val icon = if (deltaSec >= 0) "▶▶" else "◀◀"
+
+                                    binding.slideInfo.text = "$icon $sign s\n$currentFormatted / $durationFormatted"
+                                    binding.slideInfo.alpha = 1f
+
+                                    mSeekBar.progress = mTargetSeekPosition.toInt()
+                                    mCurrTimeView.text = currentFormatted
+                                    return@setOnTouchListener true
+                                }
+                            }
+                        }
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                            if (mIsSeeking) {
+                                mIsSeeking = false
+                                mExoPlayer?.seekTo(mTargetSeekPosition)
+                                setPosition(mTargetSeekPosition)
+                                binding.slideInfo.animate().alpha(0f).setDuration(300L).start()
+                                return@setOnTouchListener true
+                            }
+                        }
+                    }
                 }
-                handleTouchHoldEvent(event)
-                if (mIsLongPressActive) {
-                    return@setOnTouchListener true
+
+                if (mIsTouchInCenter) {
+                    handleTouchHoldEvent(event)
+                    if (mIsLongPressActive) {
+                        return@setOnTouchListener true
+                    }
                 }
 
                 gestureDetector.onTouchEvent(event)
@@ -280,11 +354,18 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         }
 
         storeStateVariables()
-        Glide.with(context).load(mMedium.path).into(binding.videoPreview)
+        if (mConfig.autoplayVideos) {
+            binding.videoPreview.beGone()
+        } else {
+            Glide.with(context).load(mMedium.path).into(binding.videoPreview)
+        }
 
         // setMenuVisibility is not called at VideoActivity (third party intent)
-        if (!mIsFragmentVisible && activity is VideoActivity) {
-            mIsFragmentVisible = true
+        if (!mIsFragmentVisible && (activity is VideoActivity || activity is ViewPagerActivity)) {
+            val shouldInit = arguments.getBoolean(SHOULD_INIT_FRAGMENT, true)
+            if (shouldInit) {
+                mIsFragmentVisible = true
+            }
         }
 
         mIsFullscreen = listener?.isFullScreen() == true
@@ -349,7 +430,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
                     })
 
                 videoSurface.onGlobalLayout {
-                    if (mIsFragmentVisible && mConfig.autoplayVideos && !mConfig.gestureVideoPlayer) {
+                    if (mIsFragmentVisible && mConfig.autoplayVideos) {
                         playVideo()
                     }
                 }
@@ -359,6 +440,10 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         setupVideoDuration()
         if (mStoredRememberLastVideoPosition) {
             restoreLastVideoSavedPosition()
+        }
+
+        if (!mIsPanorama && mConfig.autoplayVideos && mExoPlayer == null) {
+            initExoPlayer()
         }
 
         return mView
@@ -404,7 +489,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         }
 
         mIsFragmentVisible = menuVisible
-        val shouldPlayVideo = mWasFragmentInit && menuVisible && mConfig.autoplayVideos && !mConfig.gestureVideoPlayer
+        val shouldPlayVideo = mWasFragmentInit && menuVisible && mConfig.autoplayVideos
         if (shouldPlayVideo) playVideo()
     }
 
@@ -472,62 +557,59 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         })
     }
 
+    private fun buildMediaSource(): MediaSource {
+        val isContentUri = mMedium.path.startsWith("content://")
+        val uri = if (isContentUri) Uri.parse(mMedium.path) else Uri.fromFile(File(mMedium.path))
+
+        val dataSourceFactory = DataSource.Factory {
+            if (isContentUri) {
+                ContentDataSource(requireContext())
+            } else {
+                FileDataSource()
+            }
+        }
+        return ProgressiveMediaSource.Factory(dataSourceFactory)
+            .createMediaSource(MediaItem.fromUri(uri))
+    }
+
     private fun initExoPlayer() {
         val shouldSkipInit = activity == null || mConfig.gestureVideoPlayer || mIsPanorama || mExoPlayer != null
         if (shouldSkipInit) return
 
-        val isContentUri = mMedium.path.startsWith("content://")
-        val uri = if (isContentUri) Uri.parse(mMedium.path) else Uri.fromFile(File(mMedium.path))
-        val dataSpec = DataSpec(uri)
-        val fileDataSource = if (isContentUri) {
-            ContentDataSource(requireContext())
-        } else {
-            FileDataSource()
-        }
-
-        try {
-            fileDataSource.open(dataSpec)
-        } catch (e: Exception) {
-            fileDataSource.close()
-            activity?.showErrorToast(e)
-            return
-        }
-
-        val factory = DataSource.Factory { fileDataSource }
-        val mediaSource: MediaSource = ProgressiveMediaSource.Factory(factory)
-            .createMediaSource(MediaItem.fromUri(fileDataSource.uri!!))
-
-        fileDataSource.close()
-
-        mPlayOnPrepared = true
+        mPlayOnPrepared = mIsFragmentVisible
 
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
                 EXOPLAYER_MIN_BUFFER_MS,
                 EXOPLAYER_MAX_BUFFER_MS,
-                EXOPLAYER_MIN_BUFFER_MS,
-                EXOPLAYER_MIN_BUFFER_MS
+                EXOPLAYER_BUFFER_FOR_PLAYBACK_MS,
+                EXOPLAYER_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS
             )
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
         mExoPlayer = ExoPlayer.Builder(requireContext())
             .setMediaSourceFactory(DefaultMediaSourceFactory(requireContext()))
-            .setSeekParameters(SeekParameters.EXACT)
+            .setSeekParameters(SeekParameters.CLOSEST_SYNC)
             .setLoadControl(loadControl)
             .build()
             .apply {
-                if (mConfig.loopVideos && listener?.isSlideShowActive() == false) {
-                    repeatMode = Player.REPEAT_MODE_ONE
+                if (mConfig.videoRepeatMode == REPEAT_ONE && listener?.isSlideShowActive() == false) {
+                    setMediaSources(listOf(buildMediaSource(), buildMediaSource()))
+                    repeatMode = Player.REPEAT_MODE_ALL
+                } else {
+                    setMediaSource(buildMediaSource())
+                    repeatMode = Player.REPEAT_MODE_OFF
                 }
+
                 setPlaybackSpeed(mConfig.playbackSpeed)
-                setMediaSource(mediaSource)
                 setAudioAttributes(
                     AudioAttributes
                         .Builder()
                         .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                         .build(), false
                 )
+                playWhenReady = false
                 prepare()
 
                 if (mTextureView.surfaceTexture != null) {
@@ -542,6 +624,11 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
 
     private fun ExoPlayer.initListeners() {
         addListener(object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                mSeekBar.progress = 0
+                mCurrTimeView.text = 0.getFormattedDuration()
+            }
+
             override fun onPositionDiscontinuity(
                 oldPosition: Player.PositionInfo,
                 newPosition: Player.PositionInfo,
@@ -577,7 +664,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
                         fadeIn()
                     } else {
                         beGone()
-                        binding.videoPlayOutline.beVisible()
+                        binding.videoPlayOutline.beGone()
                     }
                 }
             }
@@ -797,13 +884,13 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
 
     fun playVideo() {
         if (mExoPlayer == null) {
+            mPlayOnPrepared = true
             initExoPlayer()
             return
         }
 
         if (binding.videoPreview.isVisible()) {
             binding.videoPreview.beGone()
-            initExoPlayer()
         }
 
         val wasEnded = videoEnded()
@@ -827,6 +914,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
             binding.bottomVideoTimeHolder.videoPlaybackSpeed.beVisible()
             binding.bottomVideoTimeHolder.videoPlaybackSpeed.text =
                 "${DecimalFormat("#.##").format(mConfig.playbackSpeed)}x"
+            updateRepeatModeUI()
         }
 
         mWasVideoStarted = true
@@ -859,7 +947,10 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     }
 
     private fun setPosition(milliseconds: Long) {
-        mExoPlayer?.seekTo(milliseconds)
+        val curr = mExoPlayer?.currentPosition ?: 0L
+        if (milliseconds != 0L || curr != 0L) {
+            mExoPlayer?.seekTo(milliseconds)
+        }
         mSeekBar.progress = milliseconds.toInt()
         mCurrTimeView.text = milliseconds.getFormattedDuration()
 
@@ -874,7 +965,8 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
 
             activity?.runOnUiThread {
                 setupTimeHolder()
-                setPosition(0)
+                mSeekBar.progress = 0
+                mCurrTimeView.text = 0.getFormattedDuration()
             }
         }
     }
@@ -883,7 +975,12 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         if (mDuration == 0L) {
             mDuration = mExoPlayer!!.duration
             setupTimeHolder()
-            setPosition(mCurrTime)
+            if (mCurrTime != 0L) {
+                setPosition(mCurrTime)
+            } else {
+                mSeekBar.progress = 0
+                mCurrTimeView.text = 0.getFormattedDuration()
+            }
 
             if (mIsFragmentVisible && (mConfig.autoplayVideos)) {
                 playVideo()
@@ -913,13 +1010,77 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
             return
         }
 
-        mCurrTime = mExoPlayer!!.duration
-        if (listener?.videoEnded() == false && mConfig.loopVideos) {
-            playVideo()
+        when (mConfig.videoRepeatMode) {
+            REPEAT_ONE -> {
+                mExoPlayer?.seekTo(0L)
+                playVideo()
+            }
+            REPEAT_FOLDER -> {
+                activity?.runOnUiThread {
+                    listener?.goToNextItem()
+                }
+            }
+            else -> {
+                mCurrTime = mExoPlayer!!.duration
+                mSeekBar.progress = mSeekBar.max
+                mCurrTimeView.text = mDuration.getFormattedDuration()
+                pauseVideo()
+            }
+        }
+    }
+
+    private fun cycleRepeatMode() {
+        val nextMode = when (mConfig.videoRepeatMode) {
+            REPEAT_FOLDER -> REPEAT_ONE
+            REPEAT_ONE -> REPEAT_OFF
+            else -> REPEAT_FOLDER
+        }
+        mConfig.videoRepeatMode = nextMode
+        updateRepeatModeUI()
+        applyRepeatMode()
+
+        val text = when (nextMode) {
+            REPEAT_FOLDER -> "リピート: フォルダ巡回"
+            REPEAT_ONE -> "リピート: 1曲"
+            else -> "リピート: OFF"
+        }
+        binding.slideInfo.text = text
+        binding.slideInfo.alpha = 1f
+        binding.slideInfo.animate().alpha(0f).setStartDelay(800L).setDuration(300L).start()
+    }
+
+    private fun updateRepeatModeUI() {
+        binding.bottomVideoTimeHolder.videoToggleRepeat.apply {
+            beVisible()
+            when (mConfig.videoRepeatMode) {
+                REPEAT_FOLDER -> {
+                    text = "🔁 ALL"
+                    alpha = 1f
+                }
+                REPEAT_ONE -> {
+                    text = "🔂 1"
+                    alpha = 1f
+                }
+                REPEAT_OFF -> {
+                    text = "OFF"
+                    alpha = 0.5f
+                }
+            }
+        }
+    }
+
+    private fun applyRepeatMode() {
+        val player = mExoPlayer ?: return
+        if (mConfig.videoRepeatMode == REPEAT_ONE && listener?.isSlideShowActive() == false) {
+            if (player.mediaItemCount == 1) {
+                player.addMediaSource(buildMediaSource())
+            }
+            player.repeatMode = Player.REPEAT_MODE_ALL
         } else {
-            mSeekBar.progress = mSeekBar.max
-            mCurrTimeView.text = mDuration.getFormattedDuration()
-            pauseVideo()
+            if (player.mediaItemCount > 1) {
+                player.removeMediaItem(1)
+            }
+            player.repeatMode = Player.REPEAT_MODE_OFF
         }
     }
 

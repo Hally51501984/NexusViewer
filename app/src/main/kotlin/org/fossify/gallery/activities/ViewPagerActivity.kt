@@ -19,8 +19,10 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.drawable.Icon
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import android.view.MenuItem
 import android.view.View
@@ -39,6 +41,7 @@ import com.bumptech.glide.request.RequestListener
 import com.bumptech.glide.request.RequestOptions
 import com.bumptech.glide.request.target.Target
 import com.google.android.material.appbar.AppBarLayout
+import org.fossify.gallery.dialogs.PickDirectoryDialog
 import org.fossify.commons.dialogs.PropertiesDialog
 import org.fossify.commons.dialogs.RenameItemDialog
 import org.fossify.commons.extensions.applyColorFilter
@@ -57,6 +60,7 @@ import org.fossify.commons.extensions.getImageResolution
 import org.fossify.commons.extensions.getIsPathDirectory
 import org.fossify.commons.extensions.getParentPath
 import org.fossify.commons.extensions.getProperBackgroundColor
+import org.fossify.commons.extensions.getRealPathFromURI
 import org.fossify.commons.extensions.getResolution
 import org.fossify.commons.extensions.getUriMimeType
 import org.fossify.commons.extensions.handleDeletePasswordProtection
@@ -155,6 +159,7 @@ import org.fossify.gallery.helpers.MAX_PRINT_SIDE_SIZE
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.PORTRAIT_PATH
 import org.fossify.gallery.helpers.RECYCLE_BIN
+import org.fossify.gallery.helpers.REPEAT_FOLDER
 import org.fossify.gallery.helpers.ROTATE_BY_ASPECT_RATIO
 import org.fossify.gallery.helpers.ROTATE_BY_DEVICE_ROTATION
 import org.fossify.gallery.helpers.ROTATE_BY_SYSTEM_SETTING
@@ -178,6 +183,7 @@ import org.fossify.gallery.helpers.TYPE_RAWS
 import org.fossify.gallery.helpers.TYPE_SVGS
 import org.fossify.gallery.helpers.TYPE_VIDEOS
 import org.fossify.gallery.helpers.getPermissionToRequest
+import org.fossify.gallery.helpers.MediaFetcher
 import org.fossify.gallery.models.Medium
 import org.fossify.gallery.models.ThumbnailItem
 import java.io.File
@@ -205,6 +211,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var mAreSlideShowMediaVisible = false
     private var mRandomSlideshowStopped = false
 
+    private var mImageAdvanceHandler = Handler(Looper.getMainLooper())
+    private var mImageAdvanceRunnable: Runnable? = null
+
     private var mIsOrientationLocked = false
 
     private var mMediaFiles = ArrayList<Medium>()
@@ -227,19 +236,49 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             padBottomSystem = listOf(binding.bottomActions.bottomActionsWrapper),
         )
 
-        setupOptionsMenu()
-        refreshMenuItems()
+        window.decorView.setBackgroundColor(Color.BLACK)
 
-        window.decorView.setBackgroundColor(getProperBackgroundColor())
-        (MediaActivity.mMedia.clone() as ArrayList<ThumbnailItem>).filterIsInstanceTo(mMediaFiles, Medium::class.java)
-
-        requestMediaPermissions {
-            initViewPager(
-                savedPath = savedInstanceState?.getString(SAVED_PATH).orEmpty()
-            )
+        val savedPath = savedInstanceState?.getString(SAVED_PATH).orEmpty()
+        if (isExternalIntent()) {
+            // 外部Intent起動: メニュー処理やパーミッションダイアログの待機を全スキップして直ちに初期化！
+            initViewPager(savedPath = savedPath)
+            window.decorView.post {
+                setupOptionsMenu()
+                refreshMenuItems()
+            }
+        } else {
+            setupOptionsMenu()
+            refreshMenuItems()
+            (MediaActivity.mMedia.clone() as ArrayList<ThumbnailItem>).filterIsInstanceTo(mMediaFiles, Medium::class.java)
+            requestMediaPermissions {
+                initViewPager(savedPath = savedPath)
+            }
+            initFavorites()
         }
 
-        initFavorites()
+        binding.viewPager.apply {
+            isCurrentItemVideo = { getCurrentMedium()?.isVideo() == true || getCurrentFragment() is VideoFragment }
+            onTwoFingerSwipe = { showFolderPickerOverlay() }
+        }
+    }
+
+    private fun showFolderPickerOverlay() {
+        PickDirectoryDialog(
+            activity = this,
+            sourcePath = mDirectory,
+            showOtherFolderButton = true,
+            showFavoritesBin = false,
+            isPickingCopyMoveDestination = false,
+            isPickingFolderForWidget = false
+        ) { selectedPath ->
+            if (selectedPath.isNotEmpty() && selectedPath != mDirectory) {
+                mDirectory = selectedPath
+                mPath = ""
+                mPos = 0
+                mMediaFiles.clear()
+                refreshViewPager(true)
+            }
+        }
     }
 
     override fun onResume() {
@@ -256,15 +295,18 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
         val filename = getCurrentMedium()?.name ?: mPath.getFilenameFromPath()
         binding.mediumViewerToolbar.title = filename
+        scheduleImageAdvance()
     }
 
     override fun onPause() {
         super.onPause()
         stopSlideshow()
+        cancelImageAdvance()
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        cancelImageAdvance()
         ColorModeHelper.resetColorMode(this)
 
         if (intent.extras?.containsKey(IS_VIEW_INTENT) == true) {
@@ -415,23 +457,46 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun initViewPager(savedPath: String) {
         val uri = intent.data
-        if (uri != null) {
-            mPath = savedPath.ifEmpty { getDataColumn(uri).orEmpty() }
+        if (uri != null && savedPath.isEmpty()) {
+            val uriString = uri.toString()
+            if (intent.extras?.containsKey(REAL_FILE_PATH) == true) {
+                mPath = intent.extras!!.getString(REAL_FILE_PATH).orEmpty()
+            }
+            if (mPath.isEmpty() && uri.scheme == "file") {
+                mPath = uri.path.orEmpty()
+            }
+            if (mPath.isEmpty()) {
+                val decoded = try { Uri.decode(uriString) } catch (e: Exception) { uriString }
+                if (decoded.contains("/storage/")) {
+                    val guessedPath = decoded.substring(decoded.indexOf("/storage/"))
+                    if (getDoesFilePathExist(guessedPath)) {
+                        mPath = guessedPath
+                    }
+                }
+            }
+            if (mPath.isEmpty()) {
+                mPath = applicationContext.getRealPathFromURI(uri).orEmpty()
+            }
+            if (mPath.isEmpty()) {
+                mPath = getDataColumn(uri).orEmpty()
+            }
+            if (mPath.isEmpty()) {
+                mPath = uri.path.orEmpty()
+            }
+            if (mPath.isEmpty()) {
+                mPath = uriString
+            }
+        } else if (savedPath.isNotEmpty()) {
+            mPath = savedPath
         } else {
             try {
-                mPath = savedPath.ifEmpty { intent.getStringExtra(PATH).orEmpty() }
-
-                // make sure "Open Recycle Bin" works well with "Show all folders content"
+                mPath = intent.getStringExtra(PATH).orEmpty()
                 mShowAll = config.showAll && (mPath.isNotEmpty() && !mPath.startsWith(recycleBinPath))
             } catch (e: Exception) {
                 showErrorToast(e)
                 finish()
                 return
             }
-        }
-
-        if (savedPath.isEmpty() && intent.extras?.containsKey(REAL_FILE_PATH) == true) {
-            mPath = intent.extras!!.getString(REAL_FILE_PATH)!!
         }
 
         if (mPath.isEmpty()) {
@@ -451,14 +516,15 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             return
         }
 
-        if (!getDoesFilePathExist(mPath) && getPortraitPath() == "") {
+        val isContent = mPath.startsWith("content://") || (uri != null && uri.scheme == "content")
+        if (!isContent && !getDoesFilePathExist(mPath) && getPortraitPath() == "") {
             finish()
             return
         }
 
         showSystemUI()
 
-        if (intent.getBooleanExtra(SKIP_AUTHENTICATION, false)) {
+        if (intent.getBooleanExtra(SKIP_AUTHENTICATION, false) || isExternalIntent()) {
             initContinue()
         } else {
             handleLockedFolderOpening(mPath.getParentPath()) { success ->
@@ -493,15 +559,45 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
         binding.viewPager.onGlobalLayout {
             if (!isDestroyed) {
-                if (mMediaFiles.isNotEmpty()) {
-                    gotMedia(mMediaFiles as ArrayList<ThumbnailItem>, refetchViewPagerPosition = true)
-                    checkSlideshowOnEnter()
+                checkSlideshowOnEnter()
+            }
+        }
+
+        var isFastScanSuccess = false
+        if (isExternalIntent() && mPath.isNotEmpty() && mDirectory != FAVORITES && mDirectory != RECYCLE_BIN) {
+            val parentFile = File(mDirectory)
+            if (parentFile.exists() && parentFile.isDirectory) {
+                val mediaFiles = ArrayList<Medium>()
+                val files = parentFile.listFiles()
+                if (files != null) {
+                    for (file in files) {
+                        if (file.isFile && (file.absolutePath.isMediaFile() || file.name.endsWith(".wav", true) || file.name.endsWith(".mp3", true) || file.name.endsWith(".flac", true) || file.name.endsWith(".m4a", true) || file.name.endsWith(".aac", true) || file.name.endsWith(".ogg", true))) {
+                            val filename = file.name
+                            val path = file.absolutePath
+                            val type = getTypeFromPath(path)
+                            val medium = Medium(null, filename, path, mDirectory, file.lastModified(), file.lastModified(), file.length(), type, 0, false, 0L, 0L)
+                            mediaFiles.add(medium)
+                        }
+                    }
+                }
+
+                if (mediaFiles.isNotEmpty()) {
+                    MediaFetcher(applicationContext).sortMedia(mediaFiles, config.getFolderSorting(mDirectory))
+                    mMediaFiles = mediaFiles
+                    mPos = mMediaFiles.indexOfFirst { it.path == mPath }
+                    if (mPos == -1) {
+                        val targetMedium = Medium(null, mPath.getFilenameFromPath(), mPath, mDirectory, 0, 0, 0, getTypeFromPath(mPath), 0, false, 0L, 0L)
+                        mMediaFiles.add(0, targetMedium)
+                        mPos = 0
+                    }
+                    refreshUI(mMediaFiles, refetchViewPagerPosition = false)
+                    isFastScanSuccess = true
                 }
             }
         }
 
-        // show the selected image asap, while loading the rest in the background to allow swiping between them. Might be needed at third party intents
-        if (mMediaFiles.isEmpty() && mPath.isNotEmpty() && mDirectory != FAVORITES) {
+        // Fast Scan に失敗した場合（SAF等のURIで直接listFilesできない場合）のフォールバック
+        if (!isFastScanSuccess && mMediaFiles.isEmpty() && mPath.isNotEmpty() && mDirectory != FAVORITES) {
             val filename = mPath.getFilenameFromPath()
             val folder = mPath.getParentPath()
             val type = getTypeFromPath(mPath)
@@ -510,7 +606,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             gotMedia(mMediaFiles as ArrayList<ThumbnailItem>, refetchViewPagerPosition = true)
         }
 
-        refreshViewPager(true)
+        if (!isFastScanSuccess) {
+            refreshViewPager(true)
+        }
         binding.viewPager.offscreenPageLimit = 2
 
         if (config.blackBackground) {
@@ -547,7 +645,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun getTypeFromPath(path: String): Int {
         return when {
-            path.isVideoFast() -> TYPE_VIDEOS
+            path.isVideoFast() || path.endsWith(".wav", true) -> TYPE_VIDEOS
             path.isGif() -> TYPE_GIFS
             path.isSvg() -> TYPE_SVGS
             path.isRawFast() -> TYPE_RAWS
@@ -718,6 +816,39 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 mRandomSlideshowStopped = true
             }
         }
+    }
+
+    private fun scheduleImageAdvance() {
+        cancelImageAdvance()
+        if (mIsSlideshowActive) return
+        if (config.videoRepeatMode != REPEAT_FOLDER) return
+
+        val medium = getCurrentMedium() ?: return
+        if (medium.isVideo()) return
+
+        val totalCount = binding.viewPager.adapter?.count ?: 0
+        if (totalCount <= 1) return
+
+        val delaySeconds = config.staticImageAdvanceDelay
+        if (delaySeconds <= 0) return
+
+        val runnable = Runnable {
+            if (!isDestroyed && !isFinishing && config.videoRepeatMode == REPEAT_FOLDER) {
+                val current = getCurrentMedium()
+                if (current != null && !current.isVideo()) {
+                    goToNextItem()
+                }
+            }
+        }
+        mImageAdvanceRunnable = runnable
+        mImageAdvanceHandler.postDelayed(runnable, delaySeconds * 1000L)
+    }
+
+    private fun cancelImageAdvance() {
+        mImageAdvanceRunnable?.let {
+            mImageAdvanceHandler.removeCallbacks(it)
+        }
+        mImageAdvanceRunnable = null
     }
 
     private fun scheduleSwipe() {
@@ -1335,7 +1466,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
 
         val isPlaying = (getCurrentFragment() as? VideoFragment)?.mIsPlaying == true
-        if (!ignorePlayingVideos && isPlaying && !isExternalIntent()) {
+        if (!ignorePlayingVideos && isPlaying) {
+            return
+        }
+
+        if (isExternalIntent() && mMediaFiles.size > 1 && media.size == mMediaFiles.size) {
             return
         }
 
@@ -1359,6 +1494,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         refreshMenuItems()
         checkOrientation()
         initBottomActions()
+        scheduleImageAdvance()
     }
 
     private fun getPositionInList(items: MutableList<Medium>): Int {
@@ -1421,6 +1557,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         mIsFullScreen = !mIsFullScreen
         checkSystemUI()
         fullscreenToggled()
+        scheduleImageAdvance()
     }
 
     override fun videoEnded(): Boolean {
@@ -1435,13 +1572,21 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     override fun isFullScreen() = mIsFullScreen
 
     override fun goToPrevItem() {
-        binding.viewPager.setCurrentItem(binding.viewPager.currentItem - 1, false)
-        checkOrientation()
+        val totalCount = binding.viewPager.adapter?.count ?: 0
+        if (totalCount > 1) {
+            val prev = if (binding.viewPager.currentItem > 0) binding.viewPager.currentItem - 1 else totalCount - 1
+            binding.viewPager.setCurrentItem(prev, false)
+            checkOrientation()
+        }
     }
 
     override fun goToNextItem() {
-        binding.viewPager.setCurrentItem(binding.viewPager.currentItem + 1, false)
-        checkOrientation()
+        val totalCount = binding.viewPager.adapter?.count ?: 0
+        if (totalCount > 1) {
+            val next = if (binding.viewPager.currentItem < totalCount - 1) binding.viewPager.currentItem + 1 else 0
+            binding.viewPager.setCurrentItem(next, false)
+            checkOrientation()
+        }
     }
 
     override fun launchViewVideoIntent(path: String) {
@@ -1528,12 +1673,16 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             updateActionbarTitle()
             refreshMenuItems()
             scheduleSwipe()
+            scheduleImageAdvance()
         }
     }
 
     override fun onPageScrollStateChanged(state: Int) {
-        if (state == ViewPager.SCROLL_STATE_IDLE && getCurrentMedium() != null) {
+        if (state == ViewPager.SCROLL_STATE_DRAGGING) {
+            cancelImageAdvance()
+        } else if (state == ViewPager.SCROLL_STATE_IDLE && getCurrentMedium() != null) {
             checkOrientation()
+            scheduleImageAdvance()
         }
     }
 

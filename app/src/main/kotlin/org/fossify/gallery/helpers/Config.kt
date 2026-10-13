@@ -162,7 +162,7 @@ class Config(context: Context) : BaseConfig(context) {
         set(includedFolders) = prefs.edit().remove(INCLUDED_FOLDERS).putStringSet(INCLUDED_FOLDERS, includedFolders).apply()
 
     var autoplayVideos: Boolean
-        get() = prefs.getBoolean(AUTOPLAY_VIDEOS, false)
+        get() = prefs.getBoolean(AUTOPLAY_VIDEOS, true)
         set(autoplayVideos) = prefs.edit().putBoolean(AUTOPLAY_VIDEOS, autoplayVideos).apply()
 
     var animateGifs: Boolean
@@ -212,6 +212,14 @@ class Config(context: Context) : BaseConfig(context) {
     var loopVideos: Boolean
         get() = prefs.getBoolean(LOOP_VIDEOS, false)
         set(loop) = prefs.edit().putBoolean(LOOP_VIDEOS, loop).apply()
+
+    var videoRepeatMode: Int
+        get() = prefs.getInt(VIDEO_REPEAT_MODE, REPEAT_FOLDER)
+        set(videoRepeatMode) = prefs.edit().putInt(VIDEO_REPEAT_MODE, videoRepeatMode).apply()
+
+    var staticImageAdvanceDelay: Int
+        get() = prefs.getInt(STATIC_IMAGE_ADVANCE_DELAY, DEFAULT_STATIC_IMAGE_ADVANCE_DELAY)
+        set(delay) = prefs.edit().putInt(STATIC_IMAGE_ADVANCE_DELAY, delay).apply()
 
     var muteVideos: Boolean
         get() = prefs.getBoolean(MUTE_VIDEOS, false)

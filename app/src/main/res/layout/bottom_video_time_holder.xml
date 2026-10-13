@@ -110,6 +110,24 @@
         app:layout_constraintTop_toTopOf="@+id/video_seekbar"
         tools:text="00:00" />
 
+    <TextView
+        android:id="@+id/video_toggle_repeat"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="@dimen/small_margin"
+        android:background="@drawable/darkened_automatic_circle_background"
+        android:gravity="center"
+        android:minWidth="@dimen/video_player_button_width"
+        android:paddingHorizontal="@dimen/normal_margin"
+        android:paddingVertical="@dimen/medium_margin"
+        android:textColor="@android:color/white"
+        android:textSize="@dimen/smaller_text_size"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="@id/video_toggle_play_pause"
+        app:layout_constraintEnd_toStartOf="@id/video_toggle_mute"
+        app:layout_constraintTop_toTopOf="@id/video_toggle_play_pause"
+        tools:text="ALL" />
+
     <ImageView
         android:id="@+id/video_toggle_mute"
         android:layout_width="wrap_content"

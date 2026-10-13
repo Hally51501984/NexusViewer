@@ -244,7 +244,7 @@ open class PhotoVideoActivity : BaseViewerActivity(), ViewPagerFragment.Fragment
         val file = File(mUri.toString())
         val intentType = intent.type ?: ""
         val type = when {
-            filename.isVideoFast() || intentType.startsWith("video/") -> TYPE_VIDEOS
+            filename.isVideoFast() || filename.endsWith(".wav", true) || intentType.startsWith("video/") || intentType.startsWith("audio/") -> TYPE_VIDEOS
             filename.isGif() || intentType.equals("image/gif", true) -> TYPE_GIFS
             filename.isRawFast() -> TYPE_RAWS
             filename.isSvg() -> TYPE_SVGS

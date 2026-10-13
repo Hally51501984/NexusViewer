@@ -16,6 +16,12 @@ const val IS_THIRD_PARTY_INTENT = "is_third_party_intent"
 const val AUTOPLAY_VIDEOS = "autoplay_videos"
 const val REMEMBER_LAST_VIDEO_POSITION = "remember_last_video_position"
 const val LOOP_VIDEOS = "loop_videos"
+const val VIDEO_REPEAT_MODE = "video_repeat_mode"
+const val REPEAT_OFF = 0
+const val REPEAT_FOLDER = 1
+const val REPEAT_ONE = 2
+const val STATIC_IMAGE_ADVANCE_DELAY = "static_image_advance_delay"
+const val DEFAULT_STATIC_IMAGE_ADVANCE_DELAY = 5
 const val MUTE_VIDEOS = "mute_videos"
 const val GESTURE_VIDEO_PLAYER = "open_videos_on_separate_screen"
 const val VIDEO_PLAYER_TYPE = "video_player_type"
@@ -145,8 +151,10 @@ const val HIDE_SYSTEM_UI_DELAY = 500L
 const val MAX_PRINT_SIDE_SIZE = 4096
 const val FAST_FORWARD_VIDEO_MS = 10000
 
-const val EXOPLAYER_MIN_BUFFER_MS = 2000
-const val EXOPLAYER_MAX_BUFFER_MS = 8000
+const val EXOPLAYER_MIN_BUFFER_MS = 1000
+const val EXOPLAYER_MAX_BUFFER_MS = 4000
+const val EXOPLAYER_BUFFER_FOR_PLAYBACK_MS = 50
+const val EXOPLAYER_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 100
 
 const val DIRECTORY = "directory"
 const val MEDIUM = "medium"
