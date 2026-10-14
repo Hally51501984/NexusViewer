@@ -381,6 +381,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             }
 
             updateAutoAdvanceIconColor()
+            updateScaleToFitIconColor()
 
             if (visibleBottomActions != 0) {
                 updateBottomActionIcons(currentMedium)
@@ -397,6 +398,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
         updateMenuItemColors(binding.mediumViewerToolbar.menu, forceWhiteIcons = true)
         updateAutoAdvanceIconColor()
+        updateScaleToFitIconColor()
         binding.mediumViewerToolbar.setOnMenuItemClickListener { menuItem ->
             if (getCurrentMedium() == null) {
                 return@setOnMenuItemClickListener true
@@ -404,6 +406,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
             when (menuItem.itemId) {
                 R.id.menu_auto_advance -> toggleAutoAdvanceStaticImages()
+                R.id.menu_scale_to_fit -> toggleScaleSmallMediaToScreen()
                 R.id.menu_copy_to -> checkMediaManagementAndCopy(true)
                 R.id.menu_move_to -> moveFileTo()
                 R.id.menu_open_with -> openPath(getCurrentPath(), true)
@@ -451,6 +454,22 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun updateAutoAdvanceIconColor() {
         val color = if (config.autoAdvanceStaticImages) getProperPrimaryColor() else Color.WHITE
         binding.mediumViewerToolbar.menu.findItem(R.id.menu_auto_advance)?.icon?.applyColorFilter(color)
+    }
+
+    /**
+     * 小さいメディアの画面いっぱい拡大（Contain）モードのON/OFF切り替え
+     */
+    private fun toggleScaleSmallMediaToScreen() {
+        config.scaleSmallMediaToScreen = !config.scaleSmallMediaToScreen
+        updateScaleToFitIconColor()
+        toast(if (config.scaleSmallMediaToScreen) R.string.scale_to_fit_on else R.string.scale_to_fit_off)
+        getCurrentPhotoFragment()?.applyScaleToFit()
+        (getCurrentFragment() as? VideoFragment)?.applyScaleToFit()
+    }
+
+    private fun updateScaleToFitIconColor() {
+        val color = if (config.scaleSmallMediaToScreen) getProperPrimaryColor() else Color.WHITE
+        binding.mediumViewerToolbar.menu.findItem(R.id.menu_scale_to_fit)?.icon?.applyColorFilter(color)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, resultData: Intent?) {
@@ -846,11 +865,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun scheduleImageAdvance() {
         cancelImageAdvance()
         if (mIsSlideshowActive || isInPlaceCropping) return
-        if (!config.autoAdvanceStaticImages && config.videoRepeatMode != REPEAT_FOLDER) return
+        if (!config.autoAdvanceStaticImages) return
 
         val medium = getCurrentMedium() ?: return
-        // 静止画のみが対象: 動画やGIFアニメーションは自動移行しない
-        if (medium.isVideo() || medium.isGIF()) return
+        if (medium.isVideo()) return
 
         val totalCount = binding.viewPager.adapter?.count ?: 0
         if (totalCount <= 1) return
@@ -858,9 +876,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         val delaySeconds = config.staticImageAdvanceDelay.takeIf { it > 0 } ?: DEFAULT_STATIC_IMAGE_ADVANCE_DELAY
 
         val runnable = Runnable {
-            if (!isDestroyed && !isFinishing && (config.autoAdvanceStaticImages || config.videoRepeatMode == REPEAT_FOLDER)) {
+            if (!isDestroyed && !isFinishing && config.autoAdvanceStaticImages) {
                 val current = getCurrentMedium()
-                if (current != null && !current.isVideo() && !current.isGIF()) {
+                if (current != null && !current.isVideo()) {
                     goToNextItem()
                 }
             }
@@ -1325,7 +1343,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     }
                 }
 
-                if (!saved) {
+                if (!saved && !isGif) {
                     val croppedBitmap = binding.cropImageView.getCroppedImage()
                     if (croppedBitmap != null) {
                         FileOutputStream(targetFile).use { out ->

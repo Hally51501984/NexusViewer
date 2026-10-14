@@ -1197,17 +1197,30 @@ class VideoFragment : ViewPagerFragment(),
         screenHeight = realMetrics.heightPixels
 
         val screenProportion = screenWidth.toFloat() / screenHeight.toFloat()
+        val scaleToFit = mConfig.scaleSmallMediaToScreen
+        val isSmallerThanScreen = mVideoSize.x < screenWidth && mVideoSize.y < screenHeight
 
         mTextureView.layoutParams.apply {
-            if (videoProportion > screenProportion) {
-                width = screenWidth
-                height = (screenWidth.toFloat() / videoProportion).toInt()
+            if (!scaleToFit && isSmallerThanScreen && mVideoSize.x > 0 && mVideoSize.y > 0) {
+                // 原寸 (1:1) 表示
+                width = mVideoSize.x
+                height = mVideoSize.y
             } else {
-                width = (videoProportion * screenHeight.toFloat()).toInt()
-                height = screenHeight
+                // 画面いっぱいまで拡大 (contain)
+                if (videoProportion > screenProportion) {
+                    width = screenWidth
+                    height = (screenWidth.toFloat() / videoProportion).toInt()
+                } else {
+                    width = (videoProportion * screenHeight.toFloat()).toInt()
+                    height = screenHeight
+                }
             }
             mTextureView.layoutParams = this
         }
+    }
+
+    fun applyScaleToFit() {
+        setVideoSize()
     }
 
     private fun handleTouchHoldEvent(event: MotionEvent) {

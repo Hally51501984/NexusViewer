@@ -9,6 +9,11 @@
         android:title="@string/auto_advance_static_images"
         app:showAsAction="always" />
     <item
+        android:id="@+id/menu_scale_to_fit"
+        android:icon="@drawable/ic_maximize_vector"
+        android:title="@string/scale_small_media_to_screen"
+        app:showAsAction="always" />
+    <item
         android:id="@+id/menu_delete"
         android:icon="@drawable/ic_delete_vector"
         android:title="@string/delete"

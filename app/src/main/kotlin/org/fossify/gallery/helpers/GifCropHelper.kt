@@ -2,18 +2,33 @@ package org.fossify.gallery.helpers
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Canvas
+import android.graphics.Matrix
 import android.graphics.Rect
 import android.net.Uri
-import pl.droidsonroids.gif.GifDrawable
+import pl.droidsonroids.gif.GifDecoder
+import pl.droidsonroids.gif.InputSource
+import java.io.File
 import java.io.OutputStream
 
 /**
- * GIFアニメーションの切り抜き（クロップ）ヘルパー。
- * 全フレームを同一の枠で切り抜き、元のディレイ・ループ設定を維持して保存する。
+ * GIFアニメーションの正確・高速な編集（切り抜き・回転・反転）ヘルパー。
+ * pl.droidsonroids.gif.GifDecoder（Cネイティブ）により全フレームを正確にデコードし、
+ * AnimatedGifEncoder で再構成して保存する。
  */
 object GifCropHelper {
 
+    private fun getInputSource(context: Context, uri: Uri): InputSource {
+        val path = uri.path
+        return if (path != null && File(path).exists()) {
+            InputSource.FileSource(File(path))
+        } else {
+            InputSource.UriSource(context.contentResolver, uri)
+        }
+    }
+
+    /**
+     * GIFアニメーションの切り抜き（クロップ）
+     */
     fun cropGif(
         context: Context,
         inputUri: Uri,
@@ -21,17 +36,19 @@ object GifCropHelper {
         cropRect: Rect,
         rotationDegrees: Int = 0
     ): Boolean {
-        var gifDrawable: GifDrawable? = null
+        var decoder: GifDecoder? = null
         return try {
-            gifDrawable = GifDrawable(context.contentResolver, inputUri)
-            val frameCount = gifDrawable.numberOfFrames
-            val loopCount = gifDrawable.loopCount
+            val inputSource = getInputSource(context, inputUri)
+            decoder = GifDecoder(inputSource)
+            val imgWidth = decoder.width
+            val imgHeight = decoder.height
+            val frameCount = decoder.numberOfFrames
+            val loopCount = decoder.loopCount
 
-            // 切り抜き矩形が画像範囲内に収まるようにクリップ
-            val safeLeft = cropRect.left.coerceIn(0, gifDrawable.intrinsicWidth - 1)
-            val safeTop = cropRect.top.coerceIn(0, gifDrawable.intrinsicHeight - 1)
-            val safeWidth = cropRect.width().coerceAtMost(gifDrawable.intrinsicWidth - safeLeft)
-            val safeHeight = cropRect.height().coerceAtMost(gifDrawable.intrinsicHeight - safeTop)
+            val safeLeft = cropRect.left.coerceIn(0, imgWidth - 1)
+            val safeTop = cropRect.top.coerceIn(0, imgHeight - 1)
+            val safeWidth = cropRect.width().coerceAtMost(imgWidth - safeLeft)
+            val safeHeight = cropRect.height().coerceAtMost(imgHeight - safeTop)
 
             if (safeWidth <= 0 || safeHeight <= 0) {
                 return false
@@ -39,35 +56,28 @@ object GifCropHelper {
 
             val encoder = AnimatedGifEncoder()
             encoder.setRepeat(loopCount)
-            encoder.setQuality(1) // 最高品質パレット
+            encoder.setQuality(10) // 高品質・高速サンプリング (NeuQuant sample=10)
             if (!encoder.start(outputStream)) {
                 return false
             }
 
-            val baseBitmap = Bitmap.createBitmap(
-                gifDrawable.intrinsicWidth,
-                gifDrawable.intrinsicHeight,
-                Bitmap.Config.ARGB_8888
-            )
-            val canvas = Canvas(baseBitmap)
-            gifDrawable.setBounds(0, 0, gifDrawable.intrinsicWidth, gifDrawable.intrinsicHeight)
+            val frameBitmap = Bitmap.createBitmap(imgWidth, imgHeight, Bitmap.Config.ARGB_8888)
+            val matrix = if (rotationDegrees != 0) {
+                Matrix().apply { postRotate(rotationDegrees.toFloat()) }
+            } else null
 
             for (i in 0 until frameCount) {
-                gifDrawable.seekToFrame(i)
-                gifDrawable.draw(canvas)
+                decoder.seekToFrame(i, frameBitmap)
 
                 var croppedBitmap = Bitmap.createBitmap(
-                    baseBitmap,
+                    frameBitmap,
                     safeLeft,
                     safeTop,
                     safeWidth,
                     safeHeight
                 )
 
-                if (rotationDegrees != 0) {
-                    val matrix = android.graphics.Matrix().apply {
-                        postRotate(rotationDegrees.toFloat())
-                    }
+                if (matrix != null) {
                     val rotatedBitmap = Bitmap.createBitmap(
                         croppedBitmap,
                         0,
@@ -81,12 +91,12 @@ object GifCropHelper {
                     croppedBitmap = rotatedBitmap
                 }
 
-                encoder.setDelay(gifDrawable.getFrameDuration(i))
+                encoder.setDelay(decoder.getFrameDuration(i))
                 encoder.addFrame(croppedBitmap)
                 croppedBitmap.recycle()
             }
 
-            baseBitmap.recycle()
+            frameBitmap.recycle()
             encoder.finish()
             true
         } catch (e: Exception) {
@@ -94,13 +104,13 @@ object GifCropHelper {
             false
         } finally {
             try {
-                gifDrawable?.recycle()
+                decoder?.recycle()
             } catch (_: Exception) {}
         }
     }
 
     /**
-     * GIFアニメーションの全フレーム回転または鏡像反転処理。
+     * GIFアニメーションの全フレーム回転または鏡像反転処理
      */
     fun rotateOrFlipGif(
         context: Context,
@@ -109,28 +119,24 @@ object GifCropHelper {
         rotationDegrees: Int = 0,
         flipHorizontal: Boolean = false
     ): Boolean {
-        var gifDrawable: GifDrawable? = null
+        var decoder: GifDecoder? = null
         return try {
-            gifDrawable = GifDrawable(context.contentResolver, inputUri)
-            val frameCount = gifDrawable.numberOfFrames
-            val loopCount = gifDrawable.loopCount
+            val inputSource = getInputSource(context, inputUri)
+            decoder = GifDecoder(inputSource)
+            val imgWidth = decoder.width
+            val imgHeight = decoder.height
+            val frameCount = decoder.numberOfFrames
+            val loopCount = decoder.loopCount
 
             val encoder = AnimatedGifEncoder()
             encoder.setRepeat(loopCount)
-            encoder.setQuality(1)
+            encoder.setQuality(10) // 高品質・高速サンプリング
             if (!encoder.start(outputStream)) {
                 return false
             }
 
-            val baseBitmap = Bitmap.createBitmap(
-                gifDrawable.intrinsicWidth,
-                gifDrawable.intrinsicHeight,
-                Bitmap.Config.ARGB_8888
-            )
-            val canvas = Canvas(baseBitmap)
-            gifDrawable.setBounds(0, 0, gifDrawable.intrinsicWidth, gifDrawable.intrinsicHeight)
-
-            val matrix = android.graphics.Matrix()
+            val frameBitmap = Bitmap.createBitmap(imgWidth, imgHeight, Bitmap.Config.ARGB_8888)
+            val matrix = Matrix()
             if (rotationDegrees != 0) {
                 matrix.postRotate(rotationDegrees.toFloat())
             }
@@ -139,25 +145,24 @@ object GifCropHelper {
             }
 
             for (i in 0 until frameCount) {
-                gifDrawable.seekToFrame(i)
-                gifDrawable.draw(canvas)
+                decoder.seekToFrame(i, frameBitmap)
 
                 val transformedBitmap = Bitmap.createBitmap(
-                    baseBitmap,
+                    frameBitmap,
                     0,
                     0,
-                    baseBitmap.width,
-                    baseBitmap.height,
+                    imgWidth,
+                    imgHeight,
                     matrix,
                     true
                 )
 
-                encoder.setDelay(gifDrawable.getFrameDuration(i))
+                encoder.setDelay(decoder.getFrameDuration(i))
                 encoder.addFrame(transformedBitmap)
                 transformedBitmap.recycle()
             }
 
-            baseBitmap.recycle()
+            frameBitmap.recycle()
             encoder.finish()
             true
         } catch (e: Exception) {
@@ -165,7 +170,7 @@ object GifCropHelper {
             false
         } finally {
             try {
-                gifDrawable?.recycle()
+                decoder?.recycle()
             } catch (_: Exception) {}
         }
     }

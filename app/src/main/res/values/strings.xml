@@ -307,6 +307,9 @@
     <string name="auto_advance_static_images">5s Auto-advance</string>
     <string name="auto_advance_on">5s Auto-advance: ON</string>
     <string name="auto_advance_off">5s Auto-advance: OFF</string>
+    <string name="scale_small_media_to_screen">Scale to screen (Contain)</string>
+    <string name="scale_to_fit_on">Scale to screen: ON</string>
+    <string name="scale_to_fit_off">Scale to screen: OFF (1:1)</string>
     <!--
         Haven't found some strings? There's more at
         https://github.com/FossifyOrg/Commons/tree/master/commons/src/main/res

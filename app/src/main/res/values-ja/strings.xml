@@ -256,4 +256,7 @@
     <string name="auto_advance_static_images">静止画5秒自動送り</string>
     <string name="auto_advance_on">5秒自動送り: ON</string>
     <string name="auto_advance_off">5秒自動送り: OFF</string>
+    <string name="scale_small_media_to_screen">画面に合わせて拡大 (Contain)</string>
+    <string name="scale_to_fit_on">画面に合わせて拡大: ON</string>
+    <string name="scale_to_fit_off">画面に合わせて拡大: OFF (原寸)</string>
 </resources>

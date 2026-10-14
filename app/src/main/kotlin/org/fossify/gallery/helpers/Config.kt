@@ -222,8 +222,12 @@ class Config(context: Context) : BaseConfig(context) {
         set(delay) = prefs.edit().putInt(STATIC_IMAGE_ADVANCE_DELAY, delay).apply()
 
     var autoAdvanceStaticImages: Boolean
-        get() = prefs.getBoolean(AUTO_ADVANCE_STATIC_IMAGES, false)
+        get() = prefs.getBoolean(AUTO_ADVANCE_STATIC_IMAGES, true)
         set(autoAdvance) = prefs.edit().putBoolean(AUTO_ADVANCE_STATIC_IMAGES, autoAdvance).apply()
+
+    var scaleSmallMediaToScreen: Boolean
+        get() = prefs.getBoolean(SCALE_SMALL_MEDIA_TO_SCREEN, true)
+        set(scale) = prefs.edit().putBoolean(SCALE_SMALL_MEDIA_TO_SCREEN, scale).apply()
 
     var muteVideos: Boolean
         get() = prefs.getBoolean(MUTE_VIDEOS, false)

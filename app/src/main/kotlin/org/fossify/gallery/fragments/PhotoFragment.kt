@@ -6,11 +6,13 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Matrix
+import android.graphics.PointF
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.PictureDrawable
 import android.net.Uri
+import pl.droidsonroids.gif.GifAnimationMetaData
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -447,6 +449,7 @@ class PhotoFragment : ViewPagerFragment() {
             binding.apply {
                 gesturesView.beGone()
                 gifViewFrame.beVisible()
+                applyGifScaleMode()
                 ensureBackgroundThread {
                     gifView.setInputSource(source)
                 }
@@ -921,7 +924,49 @@ class PhotoFragment : ViewPagerFragment() {
         hideZoomableView()
         mLoadZoomableViewHandler.removeCallbacksAndMessages(null)
         mIsSubsamplingVisible = false
-        loadBitmap(addZoomableView = true)
+        if (mMedium.isGIF()) {
+            binding.gesturesView.beGone()
+            binding.gifViewFrame.beVisible()
+            loadGif()
+        } else {
+            loadBitmap(addZoomableView = true)
+        }
+    }
+
+    private fun applyGifScaleMode() {
+        if (mScreenWidth <= 0 || mScreenHeight <= 0) return
+        try {
+            val pathToLoad = getPathToLoad(mMedium)
+            val meta = if (pathToLoad.startsWith("content://")) {
+                GifAnimationMetaData(requireContext().contentResolver, Uri.parse(pathToLoad))
+            } else {
+                GifAnimationMetaData(File(pathToLoad))
+            }
+            val gifWidth = meta.width
+            val gifHeight = meta.height
+            val scaleToFit = context?.config?.scaleSmallMediaToScreen == true
+            val isSmaller = gifWidth < mScreenWidth && gifHeight < mScreenHeight
+
+            if (scaleToFit && isSmaller && gifWidth > 0 && gifHeight > 0) {
+                val scale = minOf(mScreenWidth.toFloat() / gifWidth, mScreenHeight.toFloat() / gifHeight)
+                val targetW = (gifWidth * scale).toInt()
+                val targetH = (gifHeight * scale).toInt()
+                binding.gifViewFrame.layoutParams.width = targetW
+                binding.gifViewFrame.layoutParams.height = targetH
+            } else {
+                binding.gifViewFrame.layoutParams.width = ViewGroup.LayoutParams.WRAP_CONTENT
+                binding.gifViewFrame.layoutParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
+            }
+            binding.gifViewFrame.requestLayout()
+        } catch (_: Exception) {}
+    }
+
+    fun applyScaleToFit() {
+        if (!mWasInit) return
+        checkScreenDimensions()
+        if (mMedium.isGIF()) {
+            applyGifScaleMode()
+        }
     }
 
     private fun initExtendedDetails() {
