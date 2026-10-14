@@ -98,4 +98,75 @@ object GifCropHelper {
             } catch (_: Exception) {}
         }
     }
+
+    /**
+     * GIFアニメーションの全フレーム回転または鏡像反転処理。
+     */
+    fun rotateOrFlipGif(
+        context: Context,
+        inputUri: Uri,
+        outputStream: OutputStream,
+        rotationDegrees: Int = 0,
+        flipHorizontal: Boolean = false
+    ): Boolean {
+        var gifDrawable: GifDrawable? = null
+        return try {
+            gifDrawable = GifDrawable(context.contentResolver, inputUri)
+            val frameCount = gifDrawable.numberOfFrames
+            val loopCount = gifDrawable.loopCount
+
+            val encoder = AnimatedGifEncoder()
+            encoder.setRepeat(loopCount)
+            encoder.setQuality(1)
+            if (!encoder.start(outputStream)) {
+                return false
+            }
+
+            val baseBitmap = Bitmap.createBitmap(
+                gifDrawable.intrinsicWidth,
+                gifDrawable.intrinsicHeight,
+                Bitmap.Config.ARGB_8888
+            )
+            val canvas = Canvas(baseBitmap)
+            gifDrawable.setBounds(0, 0, gifDrawable.intrinsicWidth, gifDrawable.intrinsicHeight)
+
+            val matrix = android.graphics.Matrix()
+            if (rotationDegrees != 0) {
+                matrix.postRotate(rotationDegrees.toFloat())
+            }
+            if (flipHorizontal) {
+                matrix.postScale(-1f, 1f)
+            }
+
+            for (i in 0 until frameCount) {
+                gifDrawable.seekToFrame(i)
+                gifDrawable.draw(canvas)
+
+                val transformedBitmap = Bitmap.createBitmap(
+                    baseBitmap,
+                    0,
+                    0,
+                    baseBitmap.width,
+                    baseBitmap.height,
+                    matrix,
+                    true
+                )
+
+                encoder.setDelay(gifDrawable.getFrameDuration(i))
+                encoder.addFrame(transformedBitmap)
+                transformedBitmap.recycle()
+            }
+
+            baseBitmap.recycle()
+            encoder.finish()
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        } finally {
+            try {
+                gifDrawable?.recycle()
+            } catch (_: Exception) {}
+        }
+    }
 }

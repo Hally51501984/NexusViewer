@@ -253,4 +253,7 @@
     <string name="rotate_saved">回転して上書き保存しました</string>
     <string name="flip_saved">鏡像反転して上書き保存しました</string>
     <string name="crop_saved">トリミングして上書き保存しました</string>
+    <string name="auto_advance_static_images">静止画5秒自動送り</string>
+    <string name="auto_advance_on">5秒自動送り: ON</string>
+    <string name="auto_advance_off">5秒自動送り: OFF</string>
 </resources>

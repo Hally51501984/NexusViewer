@@ -221,6 +221,10 @@ class Config(context: Context) : BaseConfig(context) {
         get() = prefs.getInt(STATIC_IMAGE_ADVANCE_DELAY, DEFAULT_STATIC_IMAGE_ADVANCE_DELAY)
         set(delay) = prefs.edit().putInt(STATIC_IMAGE_ADVANCE_DELAY, delay).apply()
 
+    var autoAdvanceStaticImages: Boolean
+        get() = prefs.getBoolean(AUTO_ADVANCE_STATIC_IMAGES, false)
+        set(autoAdvance) = prefs.edit().putBoolean(AUTO_ADVANCE_STATIC_IMAGES, autoAdvance).apply()
+
     var muteVideos: Boolean
         get() = prefs.getBoolean(MUTE_VIDEOS, false)
         set(muteVideos) = prefs.edit().putBoolean(MUTE_VIDEOS, muteVideos).apply()

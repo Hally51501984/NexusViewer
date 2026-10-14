@@ -154,6 +154,7 @@ import org.fossify.gallery.helpers.BOTTOM_ACTION_SLIDESHOW
 import org.fossify.gallery.helpers.BOTTOM_ACTION_TOGGLE_FAVORITE
 import org.fossify.gallery.helpers.BOTTOM_ACTION_TOGGLE_VISIBILITY
 import org.fossify.gallery.helpers.ColorModeHelper
+import org.fossify.gallery.helpers.DEFAULT_STATIC_IMAGE_ADVANCE_DELAY
 import org.fossify.gallery.helpers.DefaultPageTransformer
 import org.fossify.gallery.helpers.ExifHelper
 import org.fossify.gallery.helpers.FadePageTransformer
@@ -357,7 +358,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 findItem(R.id.menu_properties)?.isVisible = visibleBottomActions and BOTTOM_ACTION_PROPERTIES == 0
                 findItem(R.id.menu_delete)?.isVisible = visibleBottomActions and BOTTOM_ACTION_DELETE == 0
                 findItem(R.id.menu_share)?.isVisible = visibleBottomActions and BOTTOM_ACTION_SHARE == 0
-                findItem(R.id.menu_edit)?.isVisible = visibleBottomActions and BOTTOM_ACTION_EDIT == 0 && !currentMedium.isSVG()
+                findItem(R.id.menu_edit)?.isVisible = (visibleBottomActions and BOTTOM_ACTION_EDIT == 0 || currentMedium.isGIF()) && !currentMedium.isSVG()
                 findItem(R.id.menu_rename)?.isVisible = visibleBottomActions and BOTTOM_ACTION_RENAME == 0
                 findItem(R.id.menu_rotate)?.isVisible = currentMedium.isImage() && visibleBottomActions and BOTTOM_ACTION_ROTATE == 0
                 findItem(R.id.menu_copy_to_clipboard)?.isVisible = currentMedium.isImage()
@@ -379,6 +380,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 )
             }
 
+            updateAutoAdvanceIconColor()
+
             if (visibleBottomActions != 0) {
                 updateBottomActionIcons(currentMedium)
             }
@@ -393,12 +396,14 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
 
         updateMenuItemColors(binding.mediumViewerToolbar.menu, forceWhiteIcons = true)
+        updateAutoAdvanceIconColor()
         binding.mediumViewerToolbar.setOnMenuItemClickListener { menuItem ->
             if (getCurrentMedium() == null) {
                 return@setOnMenuItemClickListener true
             }
 
             when (menuItem.itemId) {
+                R.id.menu_auto_advance -> toggleAutoAdvanceStaticImages()
                 R.id.menu_copy_to -> checkMediaManagementAndCopy(true)
                 R.id.menu_move_to -> moveFileTo()
                 R.id.menu_open_with -> openPath(getCurrentPath(), true)
@@ -426,6 +431,26 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         binding.mediumViewerToolbar.setNavigationOnClickListener {
             finish()
         }
+    }
+
+    /**
+     * 静止画5秒自動送りモードのON/OFF切り替え
+     */
+    private fun toggleAutoAdvanceStaticImages() {
+        config.autoAdvanceStaticImages = !config.autoAdvanceStaticImages
+        updateAutoAdvanceIconColor()
+        if (config.autoAdvanceStaticImages) {
+            toast(R.string.auto_advance_on)
+            scheduleImageAdvance()
+        } else {
+            toast(R.string.auto_advance_off)
+            cancelImageAdvance()
+        }
+    }
+
+    private fun updateAutoAdvanceIconColor() {
+        val color = if (config.autoAdvanceStaticImages) getProperPrimaryColor() else Color.WHITE
+        binding.mediumViewerToolbar.menu.findItem(R.id.menu_auto_advance)?.icon?.applyColorFilter(color)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, resultData: Intent?) {
@@ -820,22 +845,22 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun scheduleImageAdvance() {
         cancelImageAdvance()
-        if (mIsSlideshowActive) return
-        if (config.videoRepeatMode != REPEAT_FOLDER) return
+        if (mIsSlideshowActive || isInPlaceCropping) return
+        if (!config.autoAdvanceStaticImages && config.videoRepeatMode != REPEAT_FOLDER) return
 
         val medium = getCurrentMedium() ?: return
-        if (medium.isVideo()) return
+        // 静止画のみが対象: 動画やGIFアニメーションは自動移行しない
+        if (medium.isVideo() || medium.isGIF()) return
 
         val totalCount = binding.viewPager.adapter?.count ?: 0
         if (totalCount <= 1) return
 
-        val delaySeconds = config.staticImageAdvanceDelay
-        if (delaySeconds <= 0) return
+        val delaySeconds = config.staticImageAdvanceDelay.takeIf { it > 0 } ?: DEFAULT_STATIC_IMAGE_ADVANCE_DELAY
 
         val runnable = Runnable {
-            if (!isDestroyed && !isFinishing && config.videoRepeatMode == REPEAT_FOLDER) {
+            if (!isDestroyed && !isFinishing && (config.autoAdvanceStaticImages || config.videoRepeatMode == REPEAT_FOLDER)) {
                 val current = getCurrentMedium()
-                if (current != null && !current.isVideo()) {
+                if (current != null && !current.isVideo() && !current.isGIF()) {
                     goToNextItem()
                 }
             }
@@ -1013,24 +1038,24 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun initBottomActionButtons() {
         val currentMedium = getCurrentMedium()
-        val isImage = currentMedium?.isImage() == true
+        val isEditable = currentMedium?.let { it.isImage() || it.isGIF() } == true
 
         // 1. 左90°回転 (直接ワンタップ上書き保存)
-        binding.bottomActions.bottomRotate.beVisibleIf(isImage)
+        binding.bottomActions.bottomRotate.beVisibleIf(isEditable)
         binding.bottomActions.bottomRotate.setOnLongClickListener { toast(R.string.rotate_left); true }
         binding.bottomActions.bottomRotate.setOnClickListener {
             rotateCurrentPhotoLeft()
         }
 
         // 2. 鏡像反転 (直接ワンタップ上書き保存)
-        binding.bottomActions.bottomFlipHorizontal.beVisibleIf(isImage)
+        binding.bottomActions.bottomFlipHorizontal.beVisibleIf(isEditable)
         binding.bottomActions.bottomFlipHorizontal.setOnLongClickListener { toast(R.string.flip_horizontally); true }
         binding.bottomActions.bottomFlipHorizontal.setOnClickListener {
             flipCurrentPhotoHorizontal()
         }
 
         // 3. トリミング (Viewerインプレースクロップ)
-        binding.bottomActions.bottomCrop.beVisibleIf(isImage)
+        binding.bottomActions.bottomCrop.beVisibleIf(isEditable)
         binding.bottomActions.bottomCrop.setOnLongClickListener { toast(R.string.crop); true }
         binding.bottomActions.bottomCrop.setOnClickListener {
             startInPlaceCrop()
@@ -1078,10 +1103,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             if (medium.isFavorite) org.fossify.commons.R.drawable.ic_star_vector else org.fossify.commons.R.drawable.ic_star_outline_vector
         binding.bottomActions.bottomFavorite.setImageResource(favoriteIcon)
 
-        val isImage = medium.isImage()
-        binding.bottomActions.bottomRotate.beVisibleIf(isImage)
-        binding.bottomActions.bottomFlipHorizontal.beVisibleIf(isImage)
-        binding.bottomActions.bottomCrop.beVisibleIf(isImage)
+        val isEditable = medium.isImage() || medium.isGIF()
+        binding.bottomActions.bottomRotate.beVisibleIf(isEditable)
+        binding.bottomActions.bottomFlipHorizontal.beVisibleIf(isEditable)
+        binding.bottomActions.bottomCrop.beVisibleIf(isEditable)
     }
 
     /**
@@ -1108,6 +1133,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         toast(R.string.image_editing_failed)
                     }
                 }
+            } else if (currentPath.isGif()) {
+                rotateOrFlipGifDirect(currentPath, -90, false)
             } else {
                 rotateAndOverwriteBitmap(currentPath, -90, false)
             }
@@ -1138,9 +1165,42 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         toast(R.string.image_editing_failed)
                     }
                 }
+            } else if (currentPath.isGif()) {
+                rotateOrFlipGifDirect(currentPath, 0, true)
             } else {
                 rotateAndOverwriteBitmap(currentPath, 0, true)
             }
+        }
+    }
+
+    /**
+     * GIFアニメーションの全フレーム回転・反転直接上書き処理
+     */
+    private fun rotateOrFlipGifDirect(path: String, rotationDegrees: Int, flipH: Boolean) {
+        try {
+            val targetFile = File(path)
+            val tempFile = File(cacheDir, "gif_trans_${System.currentTimeMillis()}.gif")
+            val fos = FileOutputStream(tempFile)
+            val success = GifCropHelper.rotateOrFlipGif(
+                context = this,
+                inputUri = Uri.fromFile(targetFile),
+                outputStream = fos,
+                rotationDegrees = rotationDegrees,
+                flipHorizontal = flipH
+            )
+            if (success && tempFile.exists() && tempFile.length() > 0) {
+                tempFile.copyTo(targetFile, overwrite = true)
+                tempFile.delete()
+                runOnUiThread {
+                    getCurrentPhotoFragment()?.reloadCurrentPhoto()
+                    toast(if (flipH) R.string.flip_saved else R.string.rotate_saved)
+                }
+            } else {
+                tempFile.delete()
+                runOnUiThread { toast(R.string.image_editing_failed) }
+            }
+        } catch (e: Exception) {
+            runOnUiThread { toast(R.string.image_editing_failed) }
         }
     }
 
@@ -1177,6 +1237,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun startInPlaceCrop() {
         val currentPath = getCurrentPath()
         if (currentPath.isEmpty()) return
+        cancelImageAdvance()
         isInPlaceCropping = true
         isInPlaceCropSnapEnabled = true
         updateCropSnapButton()
@@ -1200,6 +1261,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         binding.cropActionsBar.beGone()
         binding.bottomActions.root.beVisible()
         binding.mediumViewerAppbar.beVisible()
+        scheduleImageAdvance()
     }
 
     /**

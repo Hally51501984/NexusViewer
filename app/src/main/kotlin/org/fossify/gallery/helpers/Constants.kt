@@ -22,6 +22,7 @@ const val REPEAT_FOLDER = 1
 const val REPEAT_ONE = 2
 const val STATIC_IMAGE_ADVANCE_DELAY = "static_image_advance_delay"
 const val DEFAULT_STATIC_IMAGE_ADVANCE_DELAY = 5
+const val AUTO_ADVANCE_STATIC_IMAGES = "auto_advance_static_images"
 const val MUTE_VIDEOS = "mute_videos"
 const val GESTURE_VIDEO_PLAYER = "open_videos_on_separate_screen"
 const val VIDEO_PLAYER_TYPE = "video_player_type"

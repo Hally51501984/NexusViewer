@@ -4,6 +4,11 @@
     xmlns:tools="http://schemas.android.com/tools"
     tools:ignore="AppCompatResource">
     <item
+        android:id="@+id/menu_auto_advance"
+        android:icon="@drawable/ic_slideshow_vector"
+        android:title="@string/auto_advance_static_images"
+        app:showAsAction="always" />
+    <item
         android:id="@+id/menu_delete"
         android:icon="@drawable/ic_delete_vector"
         android:title="@string/delete"
