@@ -7,9 +7,11 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Point
 import android.graphics.SurfaceTexture
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
+import android.provider.Settings
 import android.util.DisplayMetrics
 import android.view.GestureDetector
 import android.view.HapticFeedbackConstants
@@ -72,6 +74,7 @@ import org.fossify.gallery.activities.BaseViewerActivity
 import org.fossify.gallery.activities.VideoActivity
 import org.fossify.gallery.activities.ViewPagerActivity
 import org.fossify.gallery.databinding.PagerVideoItemBinding
+import org.fossify.gallery.extensions.audioManager
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.getActionBarHeight
 import org.fossify.gallery.extensions.getBottomActionsHeight
@@ -143,6 +146,13 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     private var mSeekStartY = 0f
     private var mSeekStartPosition = 0L
     private var mTargetSeekPosition = 0L
+
+    private var mIsVerticalScrolling = false
+    private var mIsBrightnessScroll = false
+    private var mTouchDownBrightness = 0.5f
+    private var mTouchDownVolume = 0
+    private var mMaxStreamVolume = 1
+    private val mSlideInfoFadeHandler = Handler()
 
     private val mTouchHoldRunnable = Runnable {
         mView.parent.requestDisallowInterceptTouchEvent(true)
@@ -260,6 +270,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
 
             videoSurfaceFrame.setOnTouchListener { view, event ->
                 val screenWidth = resources.displayMetrics.widthPixels.toFloat()
+                val screenHeight = resources.displayMetrics.heightPixels.toFloat()
                 if (videoSurfaceFrame.controller.state.zoom == 1f) {
                     handleEvent(event)
 
@@ -273,40 +284,110 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
                             mSeekStartX = event.x
                             mSeekStartY = event.y
                             mIsSeeking = false
+                            mIsVerticalScrolling = false
                             mSeekStartPosition = mExoPlayer?.currentPosition ?: mCurrTime
                             mTargetSeekPosition = mSeekStartPosition
+
+                            // 画面左半分（明るさ）または右半分（音量）を判定
+                            mIsBrightnessScroll = (downRawX < screenWidth * 0.5f)
+
+                            val windowBrightness = activity.window.attributes.screenBrightness
+                            mTouchDownBrightness = if (windowBrightness >= 0f) {
+                                windowBrightness
+                            } else {
+                                try {
+                                    Settings.System.getInt(
+                                        context.contentResolver,
+                                        Settings.System.SCREEN_BRIGHTNESS
+                                    ) / 255f
+                                } catch (e: Exception) {
+                                    0.5f
+                                }
+                            }
+
+                            val am = activity.audioManager
+                            mMaxStreamVolume = maxOf(am.getStreamMaxVolume(AudioManager.STREAM_MUSIC), 1)
+                            mTouchDownVolume = am.getStreamVolume(AudioManager.STREAM_MUSIC)
                         }
+
                         MotionEvent.ACTION_MOVE -> {
-                            if (mIsTouchInCenter) {
-                                val dx = event.x - mSeekStartX
-                                val dy = event.y - mSeekStartY
-                                if (!mIsSeeking && !mIsLongPressActive && Math.abs(dx) > mTouchSlop && Math.abs(dx) > Math.abs(dy) * 1.5f) {
+                            val dx = event.x - mSeekStartX
+                            val dy = event.y - mSeekStartY
+
+                            // 縦スワイプ（明るさ / 音量）実行中
+                            if (mIsVerticalScrolling) {
+                                val deltaPercent = -(dy / (screenHeight * 0.75f))
+                                if (mIsBrightnessScroll) {
+                                    val newBrightness = (mTouchDownBrightness + deltaPercent).coerceIn(0.01f, 1.0f)
+                                    val percent = (newBrightness * 100).toInt()
+                                    val attributes = activity.window.attributes
+                                    attributes.screenBrightness = newBrightness
+                                    activity.window.attributes = attributes
+
+                                    binding.slideInfo.text = "☀️ 明るさ: $percent%"
+                                } else {
+                                    val addPoints = (deltaPercent * mMaxStreamVolume).toInt()
+                                    val newVolume = (mTouchDownVolume + addPoints).coerceIn(0, mMaxStreamVolume)
+                                    activity.audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVolume, 0)
+
+                                    val percent = ((newVolume.toFloat() / mMaxStreamVolume.toFloat()) * 100).toInt()
+                                    val icon = if (newVolume == 0) "🔇" else "🔊"
+                                    binding.slideInfo.text = "$icon 音量: $percent%"
+                                }
+                                binding.slideInfo.alpha = 1f
+                                return@setOnTouchListener true
+                            }
+
+                            // 横スワイプ（シーク）実行中
+                            if (mIsSeeking) {
+                                val maxSeekRange = (mDuration / 3).coerceIn(15_000L, 180_000L).coerceAtLeast(10_000L)
+                                val seekDeltaMs = ((dx / (screenWidth * 0.5f)) * maxSeekRange).toLong()
+                                mTargetSeekPosition = (mSeekStartPosition + seekDeltaMs).coerceIn(0L, mDuration)
+
+                                val deltaSec = (mTargetSeekPosition - mSeekStartPosition) / 1000
+                                val sign = if (deltaSec >= 0) "+$deltaSec" else "$deltaSec"
+                                val currentFormatted = mTargetSeekPosition.getFormattedDuration()
+                                val durationFormatted = mDuration.getFormattedDuration()
+                                val icon = if (deltaSec >= 0) "▶▶" else "◀◀"
+
+                                binding.slideInfo.text = "$icon $sign s\n$currentFormatted / $durationFormatted"
+                                binding.slideInfo.alpha = 1f
+
+                                mSeekBar.progress = mTargetSeekPosition.toInt()
+                                mCurrTimeView.text = currentFormatted
+                                return@setOnTouchListener true
+                            }
+
+                            // ジェスチャー判定
+                            if (!mIsLongPressActive) {
+                                // 縦スワイプ判定: 縦の移動量が大きく、横の1.2倍以上
+                                if (abs(dy) > mTouchSlop && abs(dy) > abs(dx) * 1.2f) {
+                                    mIsVerticalScrolling = true
+                                    mTimerHandler.removeCallbacks(mTouchHoldRunnable)
+                                    videoSurfaceFrame.parent?.requestDisallowInterceptTouchEvent(true)
+                                    return@setOnTouchListener true
+                                }
+
+                                // 横シーク判定: 中央領域で、横の移動量が大きく、縦の1.2倍以上
+                                if (mIsTouchInCenter && abs(dx) > mTouchSlop && abs(dx) > abs(dy) * 1.2f) {
                                     mIsSeeking = true
                                     mTimerHandler.removeCallbacks(mTouchHoldRunnable)
                                     videoSurfaceFrame.parent?.requestDisallowInterceptTouchEvent(true)
-                                }
-
-                                if (mIsSeeking) {
-                                    val maxSeekRange = (mDuration / 3).coerceIn(15_000L, 180_000L).coerceAtLeast(10_000L)
-                                    val seekDeltaMs = ((dx / (screenWidth * 0.5f)) * maxSeekRange).toLong()
-                                    mTargetSeekPosition = (mSeekStartPosition + seekDeltaMs).coerceIn(0L, mDuration)
-
-                                    val deltaSec = (mTargetSeekPosition - mSeekStartPosition) / 1000
-                                    val sign = if (deltaSec >= 0) "+$deltaSec" else "$deltaSec"
-                                    val currentFormatted = mTargetSeekPosition.getFormattedDuration()
-                                    val durationFormatted = mDuration.getFormattedDuration()
-                                    val icon = if (deltaSec >= 0) "▶▶" else "◀◀"
-
-                                    binding.slideInfo.text = "$icon $sign s\n$currentFormatted / $durationFormatted"
-                                    binding.slideInfo.alpha = 1f
-
-                                    mSeekBar.progress = mTargetSeekPosition.toInt()
-                                    mCurrTimeView.text = currentFormatted
                                     return@setOnTouchListener true
                                 }
                             }
                         }
+
                         MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                            if (mIsVerticalScrolling) {
+                                mIsVerticalScrolling = false
+                                mSlideInfoFadeHandler.removeCallbacksAndMessages(null)
+                                mSlideInfoFadeHandler.postDelayed({
+                                    binding.slideInfo.animate().alpha(0f).setDuration(300L).start()
+                                }, 800L)
+                                return@setOnTouchListener true
+                            }
+
                             if (mIsSeeking) {
                                 mIsSeeking = false
                                 mExoPlayer?.seekTo(mTargetSeekPosition)
@@ -458,8 +539,8 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         mTextureView.beGoneIf(mConfig.gestureVideoPlayer || mIsPanorama)
         binding.videoSurfaceFrame.beGoneIf(mTextureView.isGone())
 
-        mVolumeSideScroll.beVisibleIf(allowVideoGestures && !mIsPanorama)
-        mBrightnessSideScroll.beVisibleIf(allowVideoGestures && !mIsPanorama)
+        mVolumeSideScroll.beGone()
+        mBrightnessSideScroll.beGone()
 
         checkExtendedDetails()
         initTimeHolder()
@@ -484,7 +565,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
 
     override fun setMenuVisibility(menuVisible: Boolean) {
         super.setMenuVisibility(menuVisible)
-        if (mIsFragmentVisible && !menuVisible) {
+        if (!menuVisible) {
             pauseVideo()
         }
 
@@ -607,7 +688,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
                     AudioAttributes
                         .Builder()
                         .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                        .build(), false
+                        .build(), true
                 )
                 playWhenReady = false
                 prepare()
@@ -921,11 +1002,12 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         if (mIsPlayerPrepared) {
             mIsPlaying = true
         }
+        updatePlayerMuteState()
         mExoPlayer?.playWhenReady = true
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
-    private fun pauseVideo() {
+    fun pauseVideo() {
         if (mExoPlayer == null) {
             return
         }
@@ -934,6 +1016,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         if (!videoEnded()) {
             mExoPlayer?.playWhenReady = false
         }
+        mExoPlayer?.volume = 0f
 
         mPlayPauseButton.setImageResource(org.fossify.commons.R.drawable.ic_play_outline_vector)
         activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -1092,6 +1175,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
             mCurrTimeView.text = 0.getFormattedDuration()
             mSeekBar.progress = 0
             mTimerHandler.removeCallbacksAndMessages(null)
+            mSlideInfoFadeHandler.removeCallbacksAndMessages(null)
         }
     }
 

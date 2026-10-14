@@ -1425,7 +1425,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     override fun onPageSelected(position: Int) {
         if (mPos != position) {
+            val oldPos = mPos
             mPos = position
+            (binding.viewPager.adapter as? MyPagerAdapter)?.let { adapter ->
+                (adapter.getCurrentFragment(oldPos) as? VideoFragment)?.pauseVideo()
+            }
             updateActionbarTitle()
             refreshMenuItems()
             scheduleSwipe()
@@ -1436,9 +1440,13 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     override fun onPageScrollStateChanged(state: Int) {
         if (state == ViewPager.SCROLL_STATE_DRAGGING) {
             cancelImageAdvance()
+            (getCurrentFragment() as? VideoFragment)?.pauseVideo()
         } else if (state == ViewPager.SCROLL_STATE_IDLE && getCurrentMedium() != null) {
             checkOrientation()
             scheduleImageAdvance()
+            if (config.autoplayVideos) {
+                (getCurrentFragment() as? VideoFragment)?.playVideo()
+            }
         }
     }
 
