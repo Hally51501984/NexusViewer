@@ -49,7 +49,8 @@ class MyPagerAdapter(val activity: ViewPagerActivity, fm: FragmentManager, val m
     }
 
     override fun destroyItem(container: ViewGroup, position: Int, any: Any) {
-        fragments.remove(position)
+        val fragment = fragments.remove(position)
+        (fragment as? VideoFragment)?.cleanup()
         super.destroyItem(container, position, any)
     }
 

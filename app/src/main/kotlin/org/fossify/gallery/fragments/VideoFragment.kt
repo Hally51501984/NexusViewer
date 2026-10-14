@@ -101,7 +101,7 @@ import java.io.FileInputStream
 import java.text.DecimalFormat
 import kotlin.math.abs
 
-class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
+class VideoFragment : ViewPagerFragment(),
     SeekBar.OnSeekBarChangeListener, PlaybackSpeedListener {
     companion object {
         private const val PROGRESS = "progress"
@@ -236,7 +236,6 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
                 mTimerHandler.removeCallbacks(mTouchHoldRunnable)
             }
             mTextureView = videoSurface
-            mTextureView.surfaceTextureListener = this@VideoFragment
 
             val gestureDetector =
                 GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
@@ -442,7 +441,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         }
 
         // setMenuVisibility is not called at VideoActivity (third party intent)
-        if (!mIsFragmentVisible && (activity is VideoActivity || activity is ViewPagerActivity)) {
+        if (!mIsFragmentVisible && activity is VideoActivity) {
             val shouldInit = arguments.getBoolean(SHOULD_INIT_FRAGMENT, true)
             if (shouldInit) {
                 mIsFragmentVisible = true
@@ -523,7 +522,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
             restoreLastVideoSavedPosition()
         }
 
-        if (!mIsPanorama && mConfig.autoplayVideos && mExoPlayer == null) {
+        if (!mIsPanorama && mConfig.autoplayVideos && mIsFragmentVisible && mExoPlayer == null) {
             initExoPlayer()
         }
 
@@ -693,9 +692,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
                 playWhenReady = false
                 prepare()
 
-                if (mTextureView.surfaceTexture != null) {
-                    setVideoSurface(Surface(mTextureView.surfaceTexture))
-                }
+                setVideoTextureView(mTextureView)
 
                 initListeners()
             }
@@ -939,7 +936,8 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
             return
         }
 
-        if (mIsPlaying) {
+        val isActuallyPlaying = mExoPlayer?.isPlaying == true || mIsPlaying
+        if (isActuallyPlaying) {
             pauseVideo()
         } else {
             playVideo()
@@ -999,9 +997,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         }
 
         mWasVideoStarted = true
-        if (mIsPlayerPrepared) {
-            mIsPlaying = true
-        }
+        mIsPlaying = true
         updatePlayerMuteState()
         mExoPlayer?.playWhenReady = true
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -1013,9 +1009,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         }
 
         mIsPlaying = false
-        if (!videoEnded()) {
-            mExoPlayer?.playWhenReady = false
-        }
+        mExoPlayer?.playWhenReady = false
         mExoPlayer?.volume = 0f
 
         mPlayPauseButton.setImageResource(org.fossify.commons.R.drawable.ic_play_outline_vector)
@@ -1167,7 +1161,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         }
     }
 
-    private fun cleanup() {
+    fun cleanup() {
         pauseVideo()
         releaseExoPlayer()
 
@@ -1182,20 +1176,11 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     private fun releaseExoPlayer() {
         mIsPlayerPrepared = false
         mExoPlayer?.apply {
+            clearVideoTextureView(mTextureView)
             stop()
             release()
         }
         mExoPlayer = null
-    }
-
-    override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
-
-    override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
-
-    override fun onSurfaceTextureDestroyed(surface: SurfaceTexture) = false
-
-    override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-        mExoPlayer?.setVideoSurface(Surface(mTextureView.surfaceTexture))
     }
 
     private fun setVideoSize() {
