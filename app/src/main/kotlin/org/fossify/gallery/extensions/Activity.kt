@@ -36,6 +36,7 @@ import org.fossify.commons.models.FAQItem
 import org.fossify.commons.models.FileDirItem
 import org.fossify.gallery.BuildConfig
 import org.fossify.gallery.R
+import org.fossify.gallery.activities.EditActivity
 import org.fossify.gallery.activities.MediaActivity
 import org.fossify.gallery.activities.SettingsActivity
 import org.fossify.gallery.activities.SimpleActivity
@@ -98,7 +99,20 @@ fun Activity.launchGesturePlayer(path: String, extras: HashMap<String, Boolean> 
 
 fun Activity.openEditor(path: String, forceChooser: Boolean = false) {
     val newPath = path.removePrefix("file://")
-    openEditorIntent(newPath, forceChooser, BuildConfig.APPLICATION_ID)
+    if (forceChooser) {
+        openEditorIntent(newPath, forceChooser = true, BuildConfig.APPLICATION_ID)
+    } else {
+        val uri = if (newPath.startsWith("content://")) {
+            Uri.parse(newPath)
+        } else {
+            Uri.fromFile(File(newPath))
+        }
+        Intent(this, EditActivity::class.java).apply {
+            data = uri
+            putExtra(REAL_FILE_PATH, newPath)
+            startActivity(this)
+        }
+    }
 }
 
 fun Activity.launchCamera() {
