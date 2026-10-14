@@ -1377,6 +1377,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 runOnUiThread {
                     cancelInPlaceCrop()
                     if (saved) {
+                        val isPortraitResult = cropRect.height() > cropRect.width()
+                        if (isPortraitResult && !config.rotatePortraitMediaLeft) {
+                            config.rotatePortraitMediaLeft = true
+                            updateRotatePortraitIconColor()
+                        }
                         getCurrentPhotoFragment()?.reloadCurrentPhoto()
                         toast(R.string.crop_saved)
                     } else {

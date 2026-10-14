@@ -927,17 +927,10 @@ class PhotoFragment : ViewPagerFragment() {
         if (file.exists()) {
             mMedium.modified = file.lastModified()
         }
-        mCurrentRotationDegrees = 0
         hideZoomableView()
         mLoadZoomableViewHandler.removeCallbacksAndMessages(null)
         mIsSubsamplingVisible = false
-        if (mMedium.isGIF()) {
-            binding.gesturesView.beGone()
-            binding.gifViewFrame.beVisible()
-            loadGif()
-        } else {
-            loadBitmap(addZoomableView = true)
-        }
+        loadImage()
     }
 
     private fun applyGifScaleMode() {

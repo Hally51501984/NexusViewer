@@ -78,12 +78,12 @@ object GifCropHelper {
             }
 
             val frameBitmap = Bitmap.createBitmap(imgWidth, imgHeight, Bitmap.Config.ARGB_8888)
+            frameBitmap.eraseColor(Color.TRANSPARENT)
             val matrix = if (rotationDegrees != 0) {
                 Matrix().apply { postRotate(rotationDegrees.toFloat()) }
             } else null
 
             for (i in 0 until frameCount) {
-                frameBitmap.eraseColor(Color.TRANSPARENT)
                 decoder.seekToFrame(i, frameBitmap)
 
                 var croppedBitmap = Bitmap.createBitmap(
@@ -153,6 +153,7 @@ object GifCropHelper {
             }
 
             val frameBitmap = Bitmap.createBitmap(imgWidth, imgHeight, Bitmap.Config.ARGB_8888)
+            frameBitmap.eraseColor(Color.TRANSPARENT)
             val matrix = Matrix()
             if (rotationDegrees != 0) {
                 matrix.postRotate(rotationDegrees.toFloat())
@@ -162,7 +163,6 @@ object GifCropHelper {
             }
 
             for (i in 0 until frameCount) {
-                frameBitmap.eraseColor(Color.TRANSPARENT)
                 decoder.seekToFrame(i, frameBitmap)
 
                 val transformedBitmap = Bitmap.createBitmap(
