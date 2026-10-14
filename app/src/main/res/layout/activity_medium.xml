@@ -12,9 +12,73 @@
         android:layout_height="match_parent"
         android:background="@android:color/black" />
 
+    <!-- インプレース・トリミング用のCropImageView -->
+    <com.canhub.cropper.CropImageView
+        android:id="@+id/crop_image_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_above="@+id/crop_actions_bar"
+        android:visibility="gone"
+        app:cropBackgroundColor="@color/crop_image_view_background"
+        app:cropInitialCropWindowPaddingRatio="0" />
+
+    <!-- 通常の写真閲覧画面下部バー -->
     <include
         android:id="@+id/bottom_actions"
         layout="@layout/bottom_actions" />
+
+    <!-- インプレース・トリミング確定用下部バー -->
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/crop_actions_bar"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/bottom_actions_height"
+        android:layout_alignParentBottom="true"
+        android:background="@drawable/gradient_background"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/crop_cancel"
+            android:layout_width="@dimen/list_touch_target_min"
+            android:layout_height="@dimen/list_touch_target_min"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/cancel"
+            android:padding="@dimen/normal_margin"
+            android:src="@drawable/ic_close_vector"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toStartOf="@+id/crop_snap_toggle"
+            app:layout_constraintHorizontal_bias="0.5"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
+
+        <ImageView
+            android:id="@+id/crop_snap_toggle"
+            android:layout_width="@dimen/list_touch_target_min"
+            android:layout_height="@dimen/list_touch_target_min"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/lossless_snap_on"
+            android:padding="@dimen/normal_margin"
+            android:src="@drawable/ic_magnet_vector"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toStartOf="@+id/crop_confirm"
+            app:layout_constraintHorizontal_bias="0.5"
+            app:layout_constraintStart_toEndOf="@+id/crop_cancel"
+            app:layout_constraintTop_toTopOf="parent" />
+
+        <ImageView
+            android:id="@+id/crop_confirm"
+            android:layout_width="@dimen/list_touch_target_min"
+            android:layout_height="@dimen/list_touch_target_min"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/save"
+            android:padding="@dimen/normal_margin"
+            android:src="@drawable/ic_check_vector"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintHorizontal_bias="0.5"
+            app:layout_constraintStart_toEndOf="@+id/crop_snap_toggle"
+            app:layout_constraintTop_toTopOf="parent" />
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
 
     <ImageView
         android:id="@+id/top_shadow"

@@ -250,4 +250,7 @@
     <string name="overwrite_original">元のファイルを上書きする</string>
     <string name="lossless_snap_on">ロスレス吸着: ON (16px)</string>
     <string name="lossless_snap_off">ロスレス吸着: OFF (自由切り抜き)</string>
+    <string name="rotate_saved">回転して上書き保存しました</string>
+    <string name="flip_saved">鏡像反転して上書き保存しました</string>
+    <string name="crop_saved">トリミングして上書き保存しました</string>
 </resources>

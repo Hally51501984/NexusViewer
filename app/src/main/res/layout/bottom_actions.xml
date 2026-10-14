@@ -9,54 +9,58 @@
     android:minHeight="@dimen/bottom_actions_height"
     android:paddingTop="@dimen/normal_margin">
 
+    <!-- 1. 左90°回転 (直接ワンタップ上書き保存) -->
     <ImageView
-        android:id="@+id/bottom_favorite"
+        android:id="@+id/bottom_rotate"
         android:layout_width="@dimen/list_touch_target_min"
         android:layout_height="@dimen/list_touch_target_min"
         android:layout_marginBottom="@dimen/normal_margin"
         android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="@string/toggle_favorite"
+        android:contentDescription="@string/rotate_left"
         android:padding="@dimen/normal_margin"
-        android:src="@drawable/ic_star_outline_vector"
+        android:src="@drawable/ic_rotate_left_vector"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toStartOf="@+id/bottom_edit"
+        app:layout_constraintEnd_toStartOf="@+id/bottom_flip_horizontal"
         app:layout_constraintHorizontal_bias="0.5"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintVertical_bias="0.0" />
 
+    <!-- 2. 鏡像反転 (直接ワンタップ上書き保存) -->
     <ImageView
-        android:id="@+id/bottom_edit"
+        android:id="@+id/bottom_flip_horizontal"
         android:layout_width="@dimen/list_touch_target_min"
         android:layout_height="@dimen/list_touch_target_min"
         android:layout_marginBottom="@dimen/normal_margin"
         android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="@string/edit"
+        android:contentDescription="@string/flip_horizontally"
         android:padding="@dimen/normal_margin"
-        android:src="@drawable/ic_edit_vector"
+        android:src="@drawable/ic_flip_horizontally_vector"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toStartOf="@+id/bottom_share"
+        app:layout_constraintEnd_toStartOf="@+id/bottom_crop"
         app:layout_constraintHorizontal_bias="0.5"
-        app:layout_constraintStart_toEndOf="@+id/bottom_favorite"
+        app:layout_constraintStart_toEndOf="@+id/bottom_rotate"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintVertical_bias="0.0" />
 
+    <!-- 3. トリミング (Viewerインプレース起動) -->
     <ImageView
-        android:id="@+id/bottom_share"
+        android:id="@+id/bottom_crop"
         android:layout_width="@dimen/list_touch_target_min"
         android:layout_height="@dimen/list_touch_target_min"
         android:layout_marginBottom="@dimen/normal_margin"
         android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="@string/share"
+        android:contentDescription="@string/crop"
         android:padding="@dimen/normal_margin"
-        android:src="@drawable/ic_share_vector"
+        android:src="@drawable/ic_aspect_ratio_vector"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toStartOf="@+id/bottom_delete"
         app:layout_constraintHorizontal_bias="0.5"
-        app:layout_constraintStart_toEndOf="@+id/bottom_edit"
+        app:layout_constraintStart_toEndOf="@+id/bottom_flip_horizontal"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintVertical_bias="0.0" />
 
+    <!-- 4. 削除 -->
     <ImageView
         android:id="@+id/bottom_delete"
         android:layout_width="@dimen/list_touch_target_min"
@@ -67,105 +71,93 @@
         android:padding="@dimen/normal_margin"
         android:src="@drawable/ic_delete_vector"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toStartOf="@+id/bottom_rotate"
+        app:layout_constraintEnd_toStartOf="@+id/bottom_share"
         app:layout_constraintHorizontal_bias="0.5"
-        app:layout_constraintStart_toEndOf="@+id/bottom_share"
+        app:layout_constraintStart_toEndOf="@+id/bottom_crop"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintVertical_bias="0.0" />
 
+    <!-- 5. 共有 -->
     <ImageView
-        android:id="@+id/bottom_rotate"
+        android:id="@+id/bottom_share"
         android:layout_width="@dimen/list_touch_target_min"
         android:layout_height="@dimen/list_touch_target_min"
         android:layout_marginBottom="@dimen/normal_margin"
         android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="@string/rotate_right"
+        android:contentDescription="@string/share"
         android:padding="@dimen/normal_margin"
-        android:src="@drawable/ic_rotate_right_vector"
+        android:src="@drawable/ic_share_vector"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toStartOf="@+id/bottom_properties"
+        app:layout_constraintEnd_toStartOf="@+id/bottom_favorite"
         app:layout_constraintHorizontal_bias="0.5"
         app:layout_constraintStart_toEndOf="@+id/bottom_delete"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintVertical_bias="0.0" />
 
+    <!-- 6. お気に入り -->
     <ImageView
-        android:id="@+id/bottom_properties"
+        android:id="@+id/bottom_favorite"
         android:layout_width="@dimen/list_touch_target_min"
         android:layout_height="@dimen/list_touch_target_min"
         android:layout_marginBottom="@dimen/normal_margin"
         android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="@string/properties"
+        android:contentDescription="@string/toggle_favorite"
         android:padding="@dimen/normal_margin"
-        android:src="@drawable/ic_info_vector"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toStartOf="@+id/bottom_change_orientation"
-        app:layout_constraintHorizontal_bias="0.5"
-        app:layout_constraintStart_toEndOf="@+id/bottom_rotate"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintVertical_bias="0.0" />
-
-    <ImageView
-        android:id="@+id/bottom_change_orientation"
-        android:layout_width="@dimen/list_touch_target_min"
-        android:layout_height="@dimen/list_touch_target_min"
-        android:layout_marginBottom="@dimen/normal_margin"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="@string/change_orientation"
-        android:padding="@dimen/normal_margin"
-        android:src="@drawable/ic_orientation_auto_vector"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toStartOf="@+id/bottom_rename"
-        app:layout_constraintHorizontal_bias="0.5"
-        app:layout_constraintStart_toEndOf="@+id/bottom_properties"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintVertical_bias="0.0" />
-
-    <ImageView
-        android:id="@+id/bottom_rename"
-        android:layout_width="@dimen/list_touch_target_min"
-        android:layout_height="@dimen/list_touch_target_min"
-        android:layout_marginBottom="@dimen/normal_margin"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="@string/rename"
-        android:padding="@dimen/normal_margin"
-        android:src="@drawable/ic_rename_vector"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toStartOf="@+id/bottom_copy"
-        app:layout_constraintHorizontal_bias="0.5"
-        app:layout_constraintStart_toEndOf="@+id/bottom_change_orientation"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintVertical_bias="0.0" />
-
-    <ImageView
-        android:id="@+id/bottom_copy"
-        android:layout_width="@dimen/list_touch_target_min"
-        android:layout_height="@dimen/list_touch_target_min"
-        android:layout_marginBottom="@dimen/normal_margin"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="@string/copy"
-        android:padding="@dimen/normal_margin"
-        android:src="@drawable/ic_copy_vector"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toStartOf="@+id/bottom_move"
-        app:layout_constraintHorizontal_bias="0.5"
-        app:layout_constraintStart_toEndOf="@+id/bottom_rename"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintVertical_bias="0.0" />
-
-    <ImageView
-        android:id="@+id/bottom_move"
-        android:layout_width="@dimen/list_touch_target_min"
-        android:layout_height="@dimen/list_touch_target_min"
-        android:layout_marginBottom="@dimen/normal_margin"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="@string/move"
-        android:padding="@dimen/normal_margin"
-        android:src="@drawable/ic_move_vector"
+        android:src="@drawable/ic_star_outline_vector"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHorizontal_bias="0.5"
-        app:layout_constraintStart_toEndOf="@+id/bottom_copy"
+        app:layout_constraintStart_toEndOf="@+id/bottom_share"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintVertical_bias="0.0" />
+
+    <!-- 既存の参照互換性のための非表示View群 -->
+    <ImageView
+        android:id="@+id/bottom_edit"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <ImageView
+        android:id="@+id/bottom_properties"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <ImageView
+        android:id="@+id/bottom_change_orientation"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <ImageView
+        android:id="@+id/bottom_rename"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <ImageView
+        android:id="@+id/bottom_copy"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <ImageView
+        android:id="@+id/bottom_move"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
 </androidx.constraintlayout.widget.ConstraintLayout>

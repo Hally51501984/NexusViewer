@@ -912,6 +912,18 @@ class PhotoFragment : ViewPagerFragment() {
         }
     }
 
+    fun reloadCurrentPhoto() {
+        val file = File(mMedium.path)
+        if (file.exists()) {
+            mMedium.modified = file.lastModified()
+        }
+        mCurrentRotationDegrees = 0
+        hideZoomableView()
+        mLoadZoomableViewHandler.removeCallbacksAndMessages(null)
+        mIsSubsamplingVisible = false
+        loadBitmap(addZoomableView = true)
+    }
+
     private fun initExtendedDetails() {
         if (requireContext().config.showExtendedDetails) {
             ensureBackgroundThread {

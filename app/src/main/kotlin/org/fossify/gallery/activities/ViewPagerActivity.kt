@@ -17,6 +17,7 @@ import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
 import android.content.res.Configuration
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.drawable.Icon
 import android.net.Uri
@@ -29,11 +30,13 @@ import android.view.View
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import android.widget.Toast
+import androidx.activity.addCallback
 import androidx.core.graphics.drawable.toDrawable
 import androidx.exifinterface.media.ExifInterface
 import androidx.print.PrintHelper
 import androidx.viewpager.widget.ViewPager
 import com.bumptech.glide.Glide
+import com.canhub.cropper.CropImageView
 import com.bumptech.glide.load.DataSource
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.load.engine.GlideException
@@ -68,9 +71,11 @@ import org.fossify.commons.extensions.handleLockedFolderOpening
 import org.fossify.commons.extensions.hasPermission
 import org.fossify.commons.extensions.hideKeyboard
 import org.fossify.commons.extensions.internalStoragePath
+import org.fossify.commons.extensions.getCompressionFormat
 import org.fossify.commons.extensions.isAStorageRootFolder
 import org.fossify.commons.extensions.isExternalStorageManager
 import org.fossify.commons.extensions.isGif
+import org.fossify.commons.extensions.isJpg
 import org.fossify.commons.extensions.isMediaFile
 import org.fossify.commons.extensions.isPortrait
 import org.fossify.commons.extensions.isRawFast
@@ -150,14 +155,20 @@ import org.fossify.gallery.helpers.BOTTOM_ACTION_TOGGLE_FAVORITE
 import org.fossify.gallery.helpers.BOTTOM_ACTION_TOGGLE_VISIBILITY
 import org.fossify.gallery.helpers.ColorModeHelper
 import org.fossify.gallery.helpers.DefaultPageTransformer
+import org.fossify.gallery.helpers.ExifHelper
 import org.fossify.gallery.helpers.FadePageTransformer
+import org.fossify.gallery.helpers.GifCropHelper
 import org.fossify.gallery.helpers.GO_TO_NEXT_ITEM
 import org.fossify.gallery.helpers.GO_TO_PREV_ITEM
 import org.fossify.gallery.helpers.HIDE_SYSTEM_UI_DELAY
 import org.fossify.gallery.helpers.IS_VIEW_INTENT
+import org.fossify.commons.extensions.getProperPrimaryColor
+import org.fossify.gallery.helpers.LosslessCropHelper
 import org.fossify.gallery.helpers.MAX_PRINT_SIDE_SIZE
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.PORTRAIT_PATH
+import java.io.File
+import java.io.FileOutputStream
 import org.fossify.gallery.helpers.RECYCLE_BIN
 import org.fossify.gallery.helpers.REPEAT_FOLDER
 import org.fossify.gallery.helpers.ROTATE_BY_ASPECT_RATIO
@@ -186,7 +197,6 @@ import org.fossify.gallery.helpers.getPermissionToRequest
 import org.fossify.gallery.helpers.MediaFetcher
 import org.fossify.gallery.models.Medium
 import org.fossify.gallery.models.ThumbnailItem
-import java.io.File
 import kotlin.math.min
 
 @Suppress("UNCHECKED_CAST")
@@ -220,6 +230,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var mFavoritePaths = ArrayList<String>()
     private var mIgnoredPaths = ArrayList<String>()
     private var mOriginalBrightness: Float? = null
+    private var isInPlaceCropping = false
+    private var isInPlaceCropSnapEnabled = true
 
     private val binding by viewBinding(ActivityMediumBinding::inflate)
 
@@ -233,8 +245,20 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
         setupEdgeToEdge(
-            padBottomSystem = listOf(binding.bottomActions.bottomActionsWrapper),
+            padBottomSystem = listOf(
+                binding.bottomActions.bottomActionsWrapper,
+                binding.cropActionsBar
+            ),
         )
+
+        onBackPressedDispatcher.addCallback(this) {
+            if (isInPlaceCropping) {
+                cancelInPlaceCrop()
+            } else {
+                isEnabled = false
+                onBackPressedDispatcher.onBackPressed()
+            }
+        }
 
         window.decorView.setBackgroundColor(Color.BLACK)
 
@@ -989,73 +1013,59 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun initBottomActionButtons() {
         val currentMedium = getCurrentMedium()
-        val visibleBottomActions = if (config.bottomActions) config.visibleBottomActions else 0
-        binding.bottomActions.bottomFavorite.beVisibleIf(visibleBottomActions and BOTTOM_ACTION_TOGGLE_FAVORITE != 0 && currentMedium?.getIsInRecycleBin() == false)
-        binding.bottomActions.bottomFavorite.setOnLongClickListener { toast(R.string.toggle_favorite); true }
-        binding.bottomActions.bottomFavorite.setOnClickListener {
-            toggleFavorite()
+        val isImage = currentMedium?.isImage() == true
+
+        // 1. 左90°回転 (直接ワンタップ上書き保存)
+        binding.bottomActions.bottomRotate.beVisibleIf(isImage)
+        binding.bottomActions.bottomRotate.setOnLongClickListener { toast(R.string.rotate_left); true }
+        binding.bottomActions.bottomRotate.setOnClickListener {
+            rotateCurrentPhotoLeft()
         }
 
-        binding.bottomActions.bottomEdit.beVisibleIf(visibleBottomActions and BOTTOM_ACTION_EDIT != 0 && currentMedium?.isSVG() == false)
-        binding.bottomActions.bottomEdit.setOnLongClickListener { toast(R.string.edit); true }
-        binding.bottomActions.bottomEdit.setOnClickListener {
-            openEditor(getCurrentPath())
+        // 2. 鏡像反転 (直接ワンタップ上書き保存)
+        binding.bottomActions.bottomFlipHorizontal.beVisibleIf(isImage)
+        binding.bottomActions.bottomFlipHorizontal.setOnLongClickListener { toast(R.string.flip_horizontally); true }
+        binding.bottomActions.bottomFlipHorizontal.setOnClickListener {
+            flipCurrentPhotoHorizontal()
         }
 
-        binding.bottomActions.bottomShare.beVisibleIf(visibleBottomActions and BOTTOM_ACTION_SHARE != 0)
-        binding.bottomActions.bottomShare.setOnLongClickListener { toast(org.fossify.commons.R.string.share); true }
-        binding.bottomActions.bottomShare.setOnClickListener {
-            shareMediumPath(getCurrentPath())
+        // 3. トリミング (Viewerインプレースクロップ)
+        binding.bottomActions.bottomCrop.beVisibleIf(isImage)
+        binding.bottomActions.bottomCrop.setOnLongClickListener { toast(R.string.crop); true }
+        binding.bottomActions.bottomCrop.setOnClickListener {
+            startInPlaceCrop()
         }
 
-        binding.bottomActions.bottomDelete.beVisibleIf(visibleBottomActions and BOTTOM_ACTION_DELETE != 0)
+        // 4. 削除
+        binding.bottomActions.bottomDelete.beVisible()
         binding.bottomActions.bottomDelete.setOnLongClickListener { toast(org.fossify.commons.R.string.delete); true }
         binding.bottomActions.bottomDelete.setOnClickListener {
             checkDeleteConfirmation()
         }
 
-        binding.bottomActions.bottomRotate.beVisibleIf(config.visibleBottomActions and BOTTOM_ACTION_ROTATE != 0 && getCurrentMedium()?.isImage() == true)
-        binding.bottomActions.bottomRotate.setOnLongClickListener { toast(R.string.rotate); true }
-        binding.bottomActions.bottomRotate.setOnClickListener {
-            rotateImage(90)
+        // 5. 共有
+        binding.bottomActions.bottomShare.beVisible()
+        binding.bottomActions.bottomShare.setOnLongClickListener { toast(org.fossify.commons.R.string.share); true }
+        binding.bottomActions.bottomShare.setOnClickListener {
+            shareMediumPath(getCurrentPath())
         }
 
-        binding.bottomActions.bottomProperties.applyColorFilter(Color.WHITE)
-        binding.bottomActions.bottomProperties.beVisibleIf(visibleBottomActions and BOTTOM_ACTION_PROPERTIES != 0)
-        binding.bottomActions.bottomProperties.setOnLongClickListener { toast(org.fossify.commons.R.string.properties); true }
-        binding.bottomActions.bottomProperties.setOnClickListener {
-            showProperties()
+        // 6. お気に入り
+        binding.bottomActions.bottomFavorite.beVisibleIf(currentMedium?.getIsInRecycleBin() == false)
+        binding.bottomActions.bottomFavorite.setOnLongClickListener { toast(R.string.toggle_favorite); true }
+        binding.bottomActions.bottomFavorite.setOnClickListener {
+            toggleFavorite()
         }
 
-        binding.bottomActions.bottomChangeOrientation.beVisibleIf(visibleBottomActions and BOTTOM_ACTION_CHANGE_ORIENTATION != 0)
-        binding.bottomActions.bottomChangeOrientation.setOnLongClickListener { toast(R.string.change_orientation); true }
-        binding.bottomActions.bottomChangeOrientation.setOnClickListener {
-            requestedOrientation = when (requestedOrientation) {
-                SCREEN_ORIENTATION_PORTRAIT -> SCREEN_ORIENTATION_LANDSCAPE
-                SCREEN_ORIENTATION_LANDSCAPE -> SCREEN_ORIENTATION_REVERSE_LANDSCAPE
-                SCREEN_ORIENTATION_REVERSE_LANDSCAPE -> SCREEN_ORIENTATION_UNSPECIFIED
-                else -> SCREEN_ORIENTATION_PORTRAIT
-            }
-            mIsOrientationLocked = requestedOrientation != SCREEN_ORIENTATION_UNSPECIFIED
-            updateBottomActionIcons(currentMedium)
+        // インプレース・トリミングバーの初期化
+        binding.cropCancel.setOnClickListener {
+            cancelInPlaceCrop()
         }
-
-        binding.bottomActions.bottomRename.beVisibleIf(visibleBottomActions and BOTTOM_ACTION_RENAME != 0)
-        binding.bottomActions.bottomRename.setOnLongClickListener { toast(org.fossify.commons.R.string.rename); true }
-        binding.bottomActions.bottomRename.setOnClickListener {
-            checkMediaManagementAndRename()
+        binding.cropSnapToggle.setOnClickListener {
+            toggleInPlaceCropSnap()
         }
-
-        binding.bottomActions.bottomCopy.beVisibleIf(visibleBottomActions and BOTTOM_ACTION_COPY != 0)
-        binding.bottomActions.bottomCopy.setOnLongClickListener { toast(org.fossify.commons.R.string.copy); true }
-        binding.bottomActions.bottomCopy.setOnClickListener {
-            checkMediaManagementAndCopy(true)
-        }
-
-        binding.bottomActions.bottomMove.beVisibleIf(visibleBottomActions and BOTTOM_ACTION_MOVE != 0)
-        binding.bottomActions.bottomMove.setOnLongClickListener { toast(org.fossify.commons.R.string.move); true }
-        binding.bottomActions.bottomMove.setOnClickListener {
-            moveFileTo()
+        binding.cropConfirm.setOnClickListener {
+            confirmInPlaceCrop()
         }
     }
 
@@ -1068,8 +1078,217 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             if (medium.isFavorite) org.fossify.commons.R.drawable.ic_star_vector else org.fossify.commons.R.drawable.ic_star_outline_vector
         binding.bottomActions.bottomFavorite.setImageResource(favoriteIcon)
 
-        binding.bottomActions.bottomRotate.beVisibleIf(config.visibleBottomActions and BOTTOM_ACTION_ROTATE != 0 && getCurrentMedium()?.isImage() == true)
-        binding.bottomActions.bottomChangeOrientation.setImageResource(getChangeOrientationIcon())
+        val isImage = medium.isImage()
+        binding.bottomActions.bottomRotate.beVisibleIf(isImage)
+        binding.bottomActions.bottomFlipHorizontal.beVisibleIf(isImage)
+        binding.bottomActions.bottomCrop.beVisibleIf(isImage)
+    }
+
+    /**
+     * 左90°回転の直接ワンタップ上書き保存
+     */
+    private fun rotateCurrentPhotoLeft() {
+        val currentPath = getCurrentPath()
+        if (currentPath.isEmpty()) return
+        toast(org.fossify.commons.R.string.saving)
+        ensureBackgroundThread {
+            if (currentPath.isJpg()) {
+                val success = ExifHelper.saveLosslessOrientation(
+                    context = this,
+                    targetUri = Uri.fromFile(File(currentPath)),
+                    rotationDegrees = -90,
+                    isFlippedHorizontally = false,
+                    isFlippedVertically = false
+                )
+                runOnUiThread {
+                    if (success) {
+                        getCurrentPhotoFragment()?.reloadCurrentPhoto()
+                        toast(R.string.rotate_saved)
+                    } else {
+                        toast(R.string.image_editing_failed)
+                    }
+                }
+            } else {
+                rotateAndOverwriteBitmap(currentPath, -90, false)
+            }
+        }
+    }
+
+    /**
+     * 鏡像反転（水平反転）の直接ワンタップ上書き保存
+     */
+    private fun flipCurrentPhotoHorizontal() {
+        val currentPath = getCurrentPath()
+        if (currentPath.isEmpty()) return
+        toast(org.fossify.commons.R.string.saving)
+        ensureBackgroundThread {
+            if (currentPath.isJpg()) {
+                val success = ExifHelper.saveLosslessOrientation(
+                    context = this,
+                    targetUri = Uri.fromFile(File(currentPath)),
+                    rotationDegrees = 0,
+                    isFlippedHorizontally = true,
+                    isFlippedVertically = false
+                )
+                runOnUiThread {
+                    if (success) {
+                        getCurrentPhotoFragment()?.reloadCurrentPhoto()
+                        toast(R.string.flip_saved)
+                    } else {
+                        toast(R.string.image_editing_failed)
+                    }
+                }
+            } else {
+                rotateAndOverwriteBitmap(currentPath, 0, true)
+            }
+        }
+    }
+
+    /**
+     * JPEG以外の画像フォーマット用直接上書き関数
+     */
+    private fun rotateAndOverwriteBitmap(path: String, rotationDegrees: Int, flipH: Boolean) {
+        try {
+            val file = File(path)
+            val bitmap = BitmapFactory.decodeFile(path)
+            if (bitmap == null) {
+                runOnUiThread { toast(R.string.image_editing_failed) }
+                return
+            }
+            val matrix = android.graphics.Matrix()
+            if (rotationDegrees != 0) matrix.postRotate(rotationDegrees.toFloat())
+            if (flipH) matrix.postScale(-1f, 1f)
+            val transformed = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+            FileOutputStream(file).use { out ->
+                transformed.compress(path.getCompressionFormat(), 100, out)
+            }
+            runOnUiThread {
+                getCurrentPhotoFragment()?.reloadCurrentPhoto()
+                toast(if (flipH) R.string.flip_saved else R.string.rotate_saved)
+            }
+        } catch (e: Exception) {
+            runOnUiThread { toast(R.string.image_editing_failed) }
+        }
+    }
+
+    /**
+     * インプレース・トリミングの開始
+     */
+    private fun startInPlaceCrop() {
+        val currentPath = getCurrentPath()
+        if (currentPath.isEmpty()) return
+        isInPlaceCropping = true
+        isInPlaceCropSnapEnabled = true
+        updateCropSnapButton()
+
+        binding.cropImageView.beVisible()
+        binding.cropImageView.setImageUriAsync(Uri.fromFile(File(currentPath)))
+        binding.cropImageView.guidelines = CropImageView.Guidelines.ON
+
+        binding.cropActionsBar.beVisible()
+        binding.bottomActions.root.beGone()
+        binding.mediumViewerAppbar.beGone()
+    }
+
+    /**
+     * インプレース・トリミングのキャンセル
+     */
+    private fun cancelInPlaceCrop() {
+        isInPlaceCropping = false
+        binding.cropImageView.beGone()
+        binding.cropImageView.setImageBitmap(null)
+        binding.cropActionsBar.beGone()
+        binding.bottomActions.root.beVisible()
+        binding.mediumViewerAppbar.beVisible()
+    }
+
+    /**
+     * ロスレス吸着（16pxスナップ）の切り替え
+     */
+    private fun toggleInPlaceCropSnap() {
+        isInPlaceCropSnapEnabled = !isInPlaceCropSnapEnabled
+        updateCropSnapButton()
+        toast(if (isInPlaceCropSnapEnabled) R.string.lossless_snap_on else R.string.lossless_snap_off)
+    }
+
+    private fun updateCropSnapButton() {
+        val color = if (isInPlaceCropSnapEnabled) getProperPrimaryColor() else Color.WHITE
+        binding.cropSnapToggle.applyColorFilter(color)
+    }
+
+    /**
+     * トリミングの確定（直接上書き保存）
+     */
+    private fun confirmInPlaceCrop() {
+        val currentPath = getCurrentPath()
+        if (currentPath.isEmpty()) return
+        val cropRect = binding.cropImageView.cropRect ?: return
+        val wholeRect = binding.cropImageView.wholeImageRect ?: return
+        val isJpg = currentPath.isJpg()
+        val isGif = currentPath.isGif()
+
+        toast(org.fossify.commons.R.string.saving)
+        ensureBackgroundThread {
+            try {
+                val targetFile = File(currentPath)
+                var saved = false
+
+                if (isJpg && isInPlaceCropSnapEnabled) {
+                    val snappedRect = LosslessCropHelper.snapRectToMcu(cropRect, wholeRect.width(), wholeRect.height())
+                    val tempFile = File(cacheDir, "crop_temp_${System.currentTimeMillis()}.jpg")
+                    val success = LosslessCropHelper.cropJpegLossless(
+                        context = this,
+                        inputUri = Uri.fromFile(targetFile),
+                        outputUri = Uri.fromFile(tempFile),
+                        rect = snappedRect
+                    )
+                    if (success && tempFile.exists() && tempFile.length() > 0) {
+                        tempFile.copyTo(targetFile, overwrite = true)
+                        tempFile.delete()
+                        saved = true
+                    }
+                } else if (isGif) {
+                    val tempFile = File(cacheDir, "crop_temp_${System.currentTimeMillis()}.gif")
+                    val fos = FileOutputStream(tempFile)
+                    val success = GifCropHelper.cropGif(
+                        context = this,
+                        inputUri = Uri.fromFile(targetFile),
+                        outputStream = fos,
+                        cropRect = cropRect
+                    )
+                    if (success && tempFile.exists() && tempFile.length() > 0) {
+                        tempFile.copyTo(targetFile, overwrite = true)
+                        tempFile.delete()
+                        saved = true
+                    }
+                }
+
+                if (!saved) {
+                    val croppedBitmap = binding.cropImageView.getCroppedImage()
+                    if (croppedBitmap != null) {
+                        FileOutputStream(targetFile).use { out ->
+                            croppedBitmap.compress(currentPath.getCompressionFormat(), 100, out)
+                        }
+                        saved = true
+                    }
+                }
+
+                runOnUiThread {
+                    cancelInPlaceCrop()
+                    if (saved) {
+                        getCurrentPhotoFragment()?.reloadCurrentPhoto()
+                        toast(R.string.crop_saved)
+                    } else {
+                        toast(R.string.image_editing_failed)
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    cancelInPlaceCrop()
+                    toast(R.string.image_editing_failed)
+                }
+            }
+        }
     }
 
     private fun toggleFavorite() {
