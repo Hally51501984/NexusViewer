@@ -248,4 +248,6 @@
         <item quantity="other">本当に %d ファイルを復元しますか?</item>
     </plurals>
     <string name="overwrite_original">元のファイルを上書きする</string>
+    <string name="lossless_snap_on">ロスレス吸着: ON (16px)</string>
+    <string name="lossless_snap_off">ロスレス吸着: OFF (自由切り抜き)</string>
 </resources>

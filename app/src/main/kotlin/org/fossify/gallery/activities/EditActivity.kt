@@ -4,46 +4,33 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Point
+import android.graphics.Rect
 import android.net.Uri
 import android.os.Bundle
-import android.os.Handler
 import android.provider.MediaStore
-import androidx.constraintlayout.widget.ConstraintLayout
-import androidx.core.graphics.scale
 import androidx.core.net.toUri
 import androidx.exifinterface.media.ExifInterface
-import androidx.recyclerview.widget.LinearLayoutManager
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.DataSource
-import com.bumptech.glide.load.DecodeFormat
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.load.engine.GlideException
 import com.bumptech.glide.request.RequestListener
 import com.bumptech.glide.request.RequestOptions
 import com.bumptech.glide.request.target.Target
 import com.canhub.cropper.CropImageView
-import com.zomato.photofilters.FilterPack
-import com.zomato.photofilters.imageprocessors.Filter
-import org.fossify.commons.dialogs.ColorPickerDialog
 import org.fossify.commons.extensions.applyColorFilter
-import org.fossify.commons.extensions.setFillWithStroke
 import org.fossify.commons.extensions.beGone
-import org.fossify.commons.extensions.beGoneIf
 import org.fossify.commons.extensions.beVisible
 import org.fossify.commons.extensions.beVisibleIf
 import org.fossify.commons.extensions.checkAppSideloading
 import org.fossify.commons.extensions.getCompressionFormat
 import org.fossify.commons.extensions.getFileOutputStream
 import org.fossify.commons.extensions.getFilenameFromPath
-import org.fossify.commons.extensions.getProperBackgroundColor
 import org.fossify.commons.extensions.getProperPrimaryColor
-import org.fossify.commons.extensions.getProperTextColor
 import org.fossify.commons.extensions.getRealPathFromURI
 import org.fossify.commons.extensions.isGone
 import org.fossify.commons.extensions.isPathOnOTG
 import org.fossify.commons.extensions.isVisible
-import org.fossify.commons.extensions.onGlobalLayout
-import org.fossify.commons.extensions.onSeekBarChangeListener
 import org.fossify.commons.extensions.rescanPaths
 import org.fossify.commons.extensions.sharePathIntent
 import org.fossify.commons.extensions.showErrorToast
@@ -55,10 +42,8 @@ import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.commons.models.FileDirItem
 import org.fossify.gallery.BuildConfig
 import org.fossify.gallery.R
-import org.fossify.gallery.adapters.FiltersAdapter
 import org.fossify.gallery.databinding.ActivityEditBinding
 import org.fossify.gallery.dialogs.OtherAspectRatioDialog
-import org.fossify.gallery.dialogs.ResizeDialog
 import org.fossify.gallery.dialogs.SaveAsDialog
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.ensureWritablePath
@@ -77,13 +62,16 @@ import org.fossify.gallery.helpers.ASPECT_RATIO_ONE_ONE
 import org.fossify.gallery.helpers.ASPECT_RATIO_OTHER
 import org.fossify.gallery.helpers.ASPECT_RATIO_SIXTEEN_NINE
 import org.fossify.gallery.helpers.ColorModeHelper
-import org.fossify.gallery.helpers.FilterThumbnailsManager
+import org.fossify.gallery.helpers.ExifHelper
+import org.fossify.gallery.helpers.GifCropHelper
+import org.fossify.gallery.helpers.LosslessCropHelper
 import org.fossify.gallery.helpers.getPermissionToRequest
-import org.fossify.gallery.models.FilterItem
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.InputStream
 import java.io.OutputStream
-import kotlin.math.max
+import kotlin.math.abs
 
 class EditActivity : BaseCropActivity() {
     companion object {
@@ -94,35 +82,20 @@ class EditActivity : BaseCropActivity() {
         private const val ASPECT_X = "aspectX"
         private const val ASPECT_Y = "aspectY"
         private const val CROP = "crop"
-
-        // constants for bottom primary action groups
-        private const val PRIMARY_ACTION_NONE = 0
-        private const val PRIMARY_ACTION_FILTER = 1
-        private const val PRIMARY_ACTION_CROP_ROTATE = 2
-        private const val PRIMARY_ACTION_DRAW = 3
-
-        private const val CROP_ROTATE_NONE = 0
-        private const val CROP_ROTATE_ASPECT_RATIO = 1
     }
 
     private lateinit var saveUri: Uri
     private var uri: Uri? = null
-    private var resizeWidth = 0
-    private var resizeHeight = 0
-    private var drawColor = 0
     private var lastOtherAspectRatio: Pair<Float, Float>? = null
-    private var currPrimaryAction = PRIMARY_ACTION_NONE
-    private var currCropRotateAction = CROP_ROTATE_ASPECT_RATIO
     private var currAspectRatio = ASPECT_RATIO_FREE
+    private var isShowingAspectRatios = false
+    private var isSnapEnabled = true
     private var isCropIntent = false
     private var isEditingWithThirdParty = false
     private var isSharingBitmap = false
-    private var wasDrawCanvasPositioned = false
     private var oldExif: ExifInterface? = null
-    private var filterInitialBitmap: Bitmap? = null
     private var originalUri: Uri? = null
     private val binding by viewBinding(ActivityEditBinding::inflate)
-
     private var overwriteRequested = false
 
     override val cropImageView: CropImageView
@@ -133,13 +106,7 @@ class EditActivity : BaseCropActivity() {
         setContentView(binding.root)
         isCropIntent = intent.extras?.get(CROP) == "true"
         setupEdgeToEdge(
-            padBottomSystem = listOf(
-                if (isCropIntent) {
-                    binding.bottomEditorCropRotateActions.root
-                } else {
-                    binding.bottomEditorPrimaryActions.root
-                }
-            )
+            padBottomSystem = listOf(binding.bottomEditorCropRotateActions.root)
         )
 
         if (checkAppSideloading()) {
@@ -159,7 +126,6 @@ class EditActivity : BaseCropActivity() {
     override fun onResume() {
         super.onResume()
         isEditingWithThirdParty = false
-        binding.bottomEditorDrawActions.bottomDrawWidth.setColors(getProperTextColor(), getProperPrimaryColor(), getProperBackgroundColor())
         setupTopAppBar(binding.editorAppbar, NavigationIcon.Arrow)
     }
 
@@ -168,6 +134,11 @@ class EditActivity : BaseCropActivity() {
         if (isEditingWithThirdParty) {
             finish()
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        ColorModeHelper.resetColorMode(this)
     }
 
     private fun setupOptionsMenu() {
@@ -214,106 +185,32 @@ class EditActivity : BaseCropActivity() {
 
         saveUri = when {
             extras?.containsKey(MediaStore.EXTRA_OUTPUT) == true
-                    && extras.get(MediaStore.EXTRA_OUTPUT) is Uri -> extras.get(MediaStore.EXTRA_OUTPUT) as Uri
+                && extras.get(MediaStore.EXTRA_OUTPUT) is Uri -> extras.get(MediaStore.EXTRA_OUTPUT) as Uri
             else -> uri!!
         }
 
         if (isCropIntent) {
-            binding.bottomEditorPrimaryActions.root.beGone()
-
-            val params = binding.bottomEditorCropRotateActions.root.layoutParams as? ConstraintLayout.LayoutParams
-            if (params != null) {
-                params.bottomToBottom = binding.activityEditHolder.id
-                binding.bottomEditorCropRotateActions.root.layoutParams = params
-            }
-
             binding.editorToolbar.menu.findItem(R.id.overwrite_original).isVisible = false
         }
 
-        loadDefaultImageView()
+        loadCropImageView()
         setupBottomActions()
 
         if (config.lastEditorCropAspectRatio == ASPECT_RATIO_OTHER) {
             if (config.lastEditorCropOtherAspectRatioX == 0f) {
                 config.lastEditorCropOtherAspectRatioX = 1f
             }
-
             if (config.lastEditorCropOtherAspectRatioY == 0f) {
                 config.lastEditorCropOtherAspectRatioY = 1f
             }
-
             lastOtherAspectRatio = Pair(config.lastEditorCropOtherAspectRatioX, config.lastEditorCropOtherAspectRatioY)
         }
         updateAspectRatio(config.lastEditorCropAspectRatio)
-        binding.cropImageView.guidelines = CropImageView.Guidelines.ON
-        binding.bottomAspectRatios.root.beVisible()
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        ColorModeHelper.resetColorMode(this)
-    }
-
-    private fun loadDefaultImageView() {
-        binding.defaultImageView.beVisible()
-        binding.cropImageView.beGone()
-        binding.editorDrawCanvas.beGone()
-
-        val options = RequestOptions()
-            .skipMemoryCache(true)
-            .diskCacheStrategy(DiskCacheStrategy.NONE)
-
-        Glide.with(this)
-            .asBitmap()
-            .load(uri)
-            .apply(options)
-            .listener(object : RequestListener<Bitmap> {
-                override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Bitmap>, isFirstResource: Boolean): Boolean {
-                    ColorModeHelper.resetColorMode(this@EditActivity)
-                    if (uri != originalUri) {
-                        uri = originalUri
-                        Handler().post {
-                            loadDefaultImageView()
-                        }
-                    }
-                    return false
-                }
-
-                override fun onResourceReady(
-                    bitmap: Bitmap,
-                    model: Any,
-                    target: Target<Bitmap>,
-                    dataSource: DataSource,
-                    isFirstResource: Boolean
-                ): Boolean {
-                    ColorModeHelper.setColorModeForImage(this@EditActivity, bitmap, config.ultraHdrRendering)
-                    val currentFilter = getFiltersAdapter()?.getCurrentFilter()
-                    if (filterInitialBitmap == null) {
-                        loadCropImageView()
-                        bottomCropRotateClicked()
-                    }
-
-                    if (filterInitialBitmap != null && currentFilter != null && currentFilter.filter.name != getString(org.fossify.commons.R.string.none)) {
-                        binding.defaultImageView.onGlobalLayout {
-                            applyFilter(currentFilter)
-                        }
-                    } else {
-                        filterInitialBitmap = bitmap
-                    }
-
-                    if (isCropIntent) {
-                        binding.bottomEditorPrimaryActions.bottomPrimaryFilter.beGone()
-                        binding.bottomEditorPrimaryActions.bottomPrimaryDraw.beGone()
-                    }
-
-                    return false
-                }
-            }).into(binding.defaultImageView)
+        updateSnapButton()
     }
 
     private fun loadCropImageView() {
         binding.defaultImageView.beGone()
-        binding.editorDrawCanvas.beGone()
         binding.cropImageView.apply {
             beVisible()
             setImageUriAsync(uri)
@@ -325,244 +222,42 @@ class EditActivity : BaseCropActivity() {
                 binding.bottomEditorCropRotateActions.bottomAspectRatio.beGone()
             }
         }
-    }
 
-    private fun loadDrawCanvas() {
-        binding.defaultImageView.beGone()
-        binding.cropImageView.beGone()
-        binding.editorDrawCanvas.beVisible()
-
-        if (!wasDrawCanvasPositioned) {
-            wasDrawCanvasPositioned = true
-            binding.editorDrawCanvas.onGlobalLayout {
-                ensureBackgroundThread {
-                    fillCanvasBackground()
+        // HDR カラーモード適用
+        Glide.with(this)
+            .asBitmap()
+            .load(uri)
+            .apply(RequestOptions().skipMemoryCache(true).diskCacheStrategy(DiskCacheStrategy.NONE))
+            .listener(object : RequestListener<Bitmap> {
+                override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Bitmap>, isFirstResource: Boolean): Boolean {
+                    ColorModeHelper.resetColorMode(this@EditActivity)
+                    return false
                 }
-            }
-        }
-    }
 
-    private fun fillCanvasBackground() {
-        val size = Point()
-        windowManager.defaultDisplay.getSize(size)
-        val options = RequestOptions()
-            .format(DecodeFormat.PREFER_ARGB_8888)
-            .skipMemoryCache(true)
-            .diskCacheStrategy(DiskCacheStrategy.NONE)
-            .fitCenter()
-
-        try {
-            val builder = Glide.with(applicationContext)
-                .asBitmap()
-                .load(uri)
-                .apply(options)
-                .into(binding.editorDrawCanvas.width, binding.editorDrawCanvas.height)
-
-            val bitmap = builder.get()
-            runOnUiThread {
-                binding.editorDrawCanvas.apply {
-                    updateBackgroundBitmap(bitmap)
-                    layoutParams.width = bitmap.width
-                    layoutParams.height = bitmap.height
-                    y = (height - bitmap.height) / 2f
-                    requestLayout()
+                override fun onResourceReady(
+                    bitmap: Bitmap,
+                    model: Any,
+                    target: Target<Bitmap>,
+                    dataSource: DataSource,
+                    isFirstResource: Boolean
+                ): Boolean {
+                    ColorModeHelper.setColorModeForImage(this@EditActivity, bitmap, config.ultraHdrRendering)
+                    return false
                 }
-            }
-        } catch (e: Exception) {
-            showErrorToast(e)
-        }
+            }).submit()
     }
 
     private fun setOldExif() {
         oldExif = readExif(uri!!)
     }
 
-    private fun startSaveFlow(overwrite: Boolean) {
-        overwriteRequested = overwrite
-        setOldExif()
-        when {
-            binding.cropImageView.isVisible() -> cropImage()
-            binding.editorDrawCanvas.isVisible() -> saveDrawnImage()
-            else -> saveFilteredImage(overwrite)
-        }
-    }
-
-    private fun saveDrawnImage() {
-        saveBitmap(
-            overwrite = overwriteRequested,
-            bitmap = binding.editorDrawCanvas.getBitmap()
-        )
-    }
-
-    override fun onImageCropped(bitmap: Bitmap?, error: Exception?) {
-        if (isFinishing || isDestroyed) return
-        if (error != null || bitmap == null) {
-            toast("${getString(R.string.image_editing_failed)}: ${error?.message}")
-            return
-        }
-
-        setOldExif()
-
-        if (isSharingBitmap) {
-            isSharingBitmap = false
-            shareBitmap(bitmap)
-            return
-        }
-
-        if (isCropIntent) {
-            resolveUriScheme(
-                uri = saveUri,
-                onPath = { saveBitmapToPath(bitmap, it, true) },
-                onContentUri = {
-                    saveBitmapToContentUri(bitmap, it, showSavingToast = true, isCropCommit = true)
-                }
-            )
-            return
-        }
-
-        saveBitmap(overwriteRequested, bitmap, showSavingToast = true)
-    }
-
-    private fun getOriginalBitmap(): Bitmap {
-        return Glide.with(applicationContext)
-            .asBitmap()
-            .load(uri)
-            .submit(Target.SIZE_ORIGINAL, Target.SIZE_ORIGINAL)
-            .get()
-    }
-
-    private fun withFilteredImage(callback: (Bitmap) -> Unit) {
-        val currentFilter = getFiltersAdapter()?.getCurrentFilter()?.filter ?: return
-        freeMemory()
-        ensureBackgroundThread {
-            try {
-                val original = getOriginalBitmap()
-                currentFilter.processFilter(original)
-                callback(original)
-            } catch (_: OutOfMemoryError) {
-                toast(org.fossify.commons.R.string.out_of_memory_error)
-            }
-        }
-    }
-
-    private fun saveFilteredImage(overwrite: Boolean) {
-        if (overwrite) {
-            withFilteredImage {
-                saveBitmap(true, it)
-            }
-        } else {
-            resolveSaveAsPath { path ->
-                withFilteredImage {
-                    saveBitmapToPath(it, path, showSavingToast = true)
-                }
-            }
-        }
-    }
-
-    private fun shareImage() {
-        ensureBackgroundThread {
-            when {
-                binding.defaultImageView.isVisible() -> {
-                    val currentFilter = getFiltersAdapter()?.getCurrentFilter()
-                    if (currentFilter == null) {
-                        toast(org.fossify.commons.R.string.unknown_error_occurred)
-                        return@ensureBackgroundThread
-                    }
-
-                    val originalBitmap = getOriginalBitmap()
-                    currentFilter.filter.processFilter(originalBitmap)
-                    shareBitmap(originalBitmap)
-                }
-
-                binding.cropImageView.isVisible() -> {
-                    isSharingBitmap = true
-                    runOnUiThread {
-                        cropImage()
-                    }
-                }
-
-                binding.editorDrawCanvas.isVisible() -> shareBitmap(binding.editorDrawCanvas.getBitmap())
-            }
-        }
-    }
-
-    private fun shareBitmap(bitmap: Bitmap) {
-        writeBitmapToCache(saveUri, bitmap) {
-            if (it != null) {
-                sharePathIntent(it, BuildConfig.APPLICATION_ID)
-            } else {
-                toast(org.fossify.commons.R.string.unknown_error_occurred)
-            }
-        }
-    }
-
-    private fun getFiltersAdapter(): FiltersAdapter? {
-        return binding.bottomEditorFilterActions.bottomActionsFilterList.adapter as? FiltersAdapter
-    }
-
     private fun setupBottomActions() {
-        setupPrimaryActionButtons()
-        setupCropRotateActionButtons()
-        setupAspectRatioButtons()
-        setupDrawButtons()
-    }
-
-    private fun setupPrimaryActionButtons() {
-        binding.bottomEditorPrimaryActions.bottomPrimaryFilter.setOnClickListener {
-            bottomFilterClicked()
+        binding.bottomEditorCropRotateActions.bottomRotateLeft.setOnClickListener {
+            binding.cropImageView.rotateImage(-90)
         }
 
-        binding.bottomEditorPrimaryActions.bottomPrimaryCropRotate.setOnClickListener {
-            bottomCropRotateClicked()
-        }
-
-        binding.bottomEditorPrimaryActions.bottomPrimaryDraw.setOnClickListener {
-            bottomDrawClicked()
-        }
-        arrayOf(
-            binding.bottomEditorPrimaryActions.bottomPrimaryFilter,
-            binding.bottomEditorPrimaryActions.bottomPrimaryCropRotate,
-            binding.bottomEditorPrimaryActions.bottomPrimaryDraw
-        ).forEach {
-            it.showContentDescriptionOnLongClick()
-        }
-    }
-
-    private fun bottomFilterClicked() {
-        currPrimaryAction = if (currPrimaryAction == PRIMARY_ACTION_FILTER) {
-            PRIMARY_ACTION_NONE
-        } else {
-            PRIMARY_ACTION_FILTER
-        }
-        updatePrimaryActionButtons()
-    }
-
-    private fun bottomCropRotateClicked() {
-        currPrimaryAction = if (currPrimaryAction == PRIMARY_ACTION_CROP_ROTATE) {
-            PRIMARY_ACTION_NONE
-        } else {
-            PRIMARY_ACTION_CROP_ROTATE
-        }
-        updatePrimaryActionButtons()
-    }
-
-    private fun bottomDrawClicked() {
-        currPrimaryAction = if (currPrimaryAction == PRIMARY_ACTION_DRAW) {
-            PRIMARY_ACTION_NONE
-        } else {
-            PRIMARY_ACTION_DRAW
-        }
-        updatePrimaryActionButtons()
-    }
-
-    private fun setupCropRotateActionButtons() {
-        binding.bottomEditorCropRotateActions.bottomRotate.setOnClickListener {
+        binding.bottomEditorCropRotateActions.bottomRotateRight.setOnClickListener {
             binding.cropImageView.rotateImage(90)
-        }
-
-        binding.bottomEditorCropRotateActions.bottomResize.beGoneIf(isCropIntent)
-        binding.bottomEditorCropRotateActions.bottomResize.setOnClickListener {
-            resizeImage()
         }
 
         binding.bottomEditorCropRotateActions.bottomFlipHorizontally.setOnClickListener {
@@ -574,27 +269,39 @@ class EditActivity : BaseCropActivity() {
         }
 
         binding.bottomEditorCropRotateActions.bottomAspectRatio.setOnClickListener {
-            currCropRotateAction = if (currCropRotateAction == CROP_ROTATE_ASPECT_RATIO) {
-                binding.cropImageView.guidelines = CropImageView.Guidelines.OFF
-                binding.bottomAspectRatios.root.beGone()
-                CROP_ROTATE_NONE
+            isShowingAspectRatios = !isShowingAspectRatios
+            binding.bottomAspectRatios.root.beVisibleIf(isShowingAspectRatios)
+            binding.cropImageView.guidelines = if (isShowingAspectRatios) {
+                CropImageView.Guidelines.ON
             } else {
-                binding.cropImageView.guidelines = CropImageView.Guidelines.ON
-                binding.bottomAspectRatios.root.beVisible()
-                CROP_ROTATE_ASPECT_RATIO
+                CropImageView.Guidelines.ON_TOUCH
             }
             updateCropRotateActionButtons()
         }
 
+        binding.bottomEditorCropRotateActions.bottomSnapToggle.setOnClickListener {
+            isSnapEnabled = !isSnapEnabled
+            updateSnapButton()
+            toast(if (isSnapEnabled) R.string.lossless_snap_on else R.string.lossless_snap_off)
+        }
+
         arrayOf(
-            binding.bottomEditorCropRotateActions.bottomRotate,
-            binding.bottomEditorCropRotateActions.bottomResize,
+            binding.bottomEditorCropRotateActions.bottomRotateLeft,
+            binding.bottomEditorCropRotateActions.bottomRotateRight,
             binding.bottomEditorCropRotateActions.bottomFlipHorizontally,
             binding.bottomEditorCropRotateActions.bottomFlipVertically,
-            binding.bottomEditorCropRotateActions.bottomAspectRatio
+            binding.bottomEditorCropRotateActions.bottomAspectRatio,
+            binding.bottomEditorCropRotateActions.bottomSnapToggle
         ).forEach {
             it.showContentDescriptionOnLongClick()
         }
+
+        setupAspectRatioButtons()
+    }
+
+    private fun updateSnapButton() {
+        val color = if (isSnapEnabled) getProperPrimaryColor() else Color.WHITE
+        binding.bottomEditorCropRotateActions.bottomSnapToggle.applyColorFilter(color)
     }
 
     private fun setupAspectRatioButtons() {
@@ -626,134 +333,9 @@ class EditActivity : BaseCropActivity() {
         updateAspectRatioButtons()
     }
 
-    private fun setupDrawButtons() {
-        updateDrawColor(config.lastEditorDrawColor)
-        binding.bottomEditorDrawActions.bottomDrawWidth.progress = config.lastEditorBrushSize
-        updateBrushSize(config.lastEditorBrushSize)
-
-        binding.bottomEditorDrawActions.bottomDrawColorClickable.setOnClickListener {
-            ColorPickerDialog(this, drawColor) { wasPositivePressed, color ->
-                if (wasPositivePressed) {
-                    updateDrawColor(color)
-                }
-            }
-        }
-
-        binding.bottomEditorDrawActions.bottomDrawWidth.onSeekBarChangeListener {
-            config.lastEditorBrushSize = it
-            updateBrushSize(it)
-        }
-
-        binding.bottomEditorDrawActions.bottomDrawUndo.setOnClickListener {
-            binding.editorDrawCanvas.undo()
-        }
-    }
-
-    private fun updateBrushSize(percent: Int) {
-        binding.editorDrawCanvas.updateBrushSize(percent)
-        val scale = max(0.03f, percent / 100f)
-        binding.bottomEditorDrawActions.bottomDrawColor.scaleX = scale
-        binding.bottomEditorDrawActions.bottomDrawColor.scaleY = scale
-    }
-
-    private fun updatePrimaryActionButtons() {
-        if (binding.cropImageView.isGone() && currPrimaryAction == PRIMARY_ACTION_CROP_ROTATE) {
-            loadCropImageView()
-        } else if (binding.defaultImageView.isGone() && currPrimaryAction == PRIMARY_ACTION_FILTER) {
-            loadDefaultImageView()
-        } else if (binding.editorDrawCanvas.isGone() && currPrimaryAction == PRIMARY_ACTION_DRAW) {
-            loadDrawCanvas()
-        }
-
-        arrayOf(
-            binding.bottomEditorPrimaryActions.bottomPrimaryFilter,
-            binding.bottomEditorPrimaryActions.bottomPrimaryCropRotate,
-            binding.bottomEditorPrimaryActions.bottomPrimaryDraw
-        ).forEach {
-            it.applyColorFilter(Color.WHITE)
-        }
-
-        val currentPrimaryActionButton = when (currPrimaryAction) {
-            PRIMARY_ACTION_FILTER -> binding.bottomEditorPrimaryActions.bottomPrimaryFilter
-            PRIMARY_ACTION_CROP_ROTATE -> binding.bottomEditorPrimaryActions.bottomPrimaryCropRotate
-            PRIMARY_ACTION_DRAW -> binding.bottomEditorPrimaryActions.bottomPrimaryDraw
-            else -> null
-        }
-
-        currentPrimaryActionButton?.applyColorFilter(getProperPrimaryColor())
-        binding.bottomEditorFilterActions.root.beVisibleIf(currPrimaryAction == PRIMARY_ACTION_FILTER)
-        binding.bottomEditorCropRotateActions.root.beVisibleIf(currPrimaryAction == PRIMARY_ACTION_CROP_ROTATE)
-        binding.bottomEditorDrawActions.root.beVisibleIf(currPrimaryAction == PRIMARY_ACTION_DRAW)
-
-        if (currPrimaryAction == PRIMARY_ACTION_FILTER && binding.bottomEditorFilterActions.bottomActionsFilterList.adapter == null) {
-            ensureBackgroundThread {
-                val thumbnailSize = resources.getDimension(R.dimen.bottom_filters_thumbnail_size).toInt()
-
-                val bitmap = try {
-                    Glide.with(this)
-                        .asBitmap()
-                        .load(uri).listener(object : RequestListener<Bitmap> {
-                            override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Bitmap>, isFirstResource: Boolean): Boolean {
-                                showErrorToast(e.toString())
-                                return false
-                            }
-
-                            override fun onResourceReady(
-                                resource: Bitmap,
-                                model: Any,
-                                target: Target<Bitmap>,
-                                dataSource: DataSource,
-                                isFirstResource: Boolean
-                            ) = false
-                        })
-                        .submit(thumbnailSize, thumbnailSize)
-                        .get()
-                } catch (e: GlideException) {
-                    showErrorToast(e)
-                    finish()
-                    return@ensureBackgroundThread
-                }
-
-                runOnUiThread {
-                    val filterThumbnailsManager = FilterThumbnailsManager()
-                    filterThumbnailsManager.clearThumbs()
-
-                    val noFilter = Filter(getString(org.fossify.commons.R.string.none))
-                    filterThumbnailsManager.addThumb(FilterItem(bitmap, noFilter))
-
-                    FilterPack.getFilterPack(this).forEach {
-                        val filterItem = FilterItem(bitmap, it)
-                        filterThumbnailsManager.addThumb(filterItem)
-                    }
-
-                    val filterItems = filterThumbnailsManager.processThumbs()
-                    val adapter = FiltersAdapter(applicationContext, filterItems) {
-                        val layoutManager = binding.bottomEditorFilterActions.bottomActionsFilterList.layoutManager as LinearLayoutManager
-                        applyFilter(filterItems[it])
-
-                        if (it == layoutManager.findLastCompletelyVisibleItemPosition() || it == layoutManager.findLastVisibleItemPosition()) {
-                            binding.bottomEditorFilterActions.bottomActionsFilterList.smoothScrollBy(thumbnailSize, 0)
-                        } else if (it == layoutManager.findFirstCompletelyVisibleItemPosition() || it == layoutManager.findFirstVisibleItemPosition()) {
-                            binding.bottomEditorFilterActions.bottomActionsFilterList.smoothScrollBy(-thumbnailSize, 0)
-                        }
-                    }
-
-                    binding.bottomEditorFilterActions.bottomActionsFilterList.adapter = adapter
-                    adapter.notifyDataSetChanged()
-                }
-            }
-        }
-
-        if (currPrimaryAction != PRIMARY_ACTION_CROP_ROTATE) {
-            binding.bottomAspectRatios.root.beGone()
-            currCropRotateAction = CROP_ROTATE_NONE
-        }
-        updateCropRotateActionButtons()
-    }
-
-    private fun applyFilter(filterItem: FilterItem) {
-        val newBitmap = Bitmap.createBitmap(filterInitialBitmap!!)
-        binding.defaultImageView.setImageBitmap(filterItem.filter.processFilter(newBitmap))
+    private fun updateCropRotateActionButtons() {
+        val color = if (isShowingAspectRatios) getProperPrimaryColor() else Color.WHITE
+        binding.bottomEditorCropRotateActions.bottomAspectRatio.applyColorFilter(color)
     }
 
     private fun updateAspectRatio(aspectRatio: Int) {
@@ -771,7 +353,6 @@ class EditActivity : BaseCropActivity() {
                     ASPECT_RATIO_SIXTEEN_NINE -> Pair(16f, 9f)
                     else -> Pair(lastOtherAspectRatio!!.first, lastOtherAspectRatio!!.second)
                 }
-
                 setAspectRatio(newAspectRatio.first.toInt(), newAspectRatio.second.toInt())
             }
         }
@@ -795,43 +376,7 @@ class EditActivity : BaseCropActivity() {
             ASPECT_RATIO_SIXTEEN_NINE -> binding.bottomAspectRatios.bottomAspectRatioSixteenNine
             else -> binding.bottomAspectRatios.bottomAspectRatioOther
         }
-
         currentAspectRatioButton.setTextColor(getProperPrimaryColor())
-    }
-
-    private fun updateCropRotateActionButtons() {
-        arrayOf(binding.bottomEditorCropRotateActions.bottomAspectRatio).forEach {
-            it.applyColorFilter(Color.WHITE)
-        }
-
-        val primaryActionView = when (currCropRotateAction) {
-            CROP_ROTATE_ASPECT_RATIO -> binding.bottomEditorCropRotateActions.bottomAspectRatio
-            else -> null
-        }
-
-        primaryActionView?.applyColorFilter(getProperPrimaryColor())
-    }
-
-    private fun updateDrawColor(color: Int) {
-        drawColor = color
-        binding.bottomEditorDrawActions.bottomDrawColor
-            .setFillWithStroke(color, getProperBackgroundColor())
-        config.lastEditorDrawColor = color
-        binding.editorDrawCanvas.updateColor(color)
-    }
-
-    private fun resizeImage() {
-        val point = getAreaSize()
-        if (point == null) {
-            toast(org.fossify.commons.R.string.unknown_error_occurred)
-            return
-        }
-
-        ResizeDialog(this, point) {
-            resizeWidth = it.x
-            resizeHeight = it.y
-            cropImage()
-        }
     }
 
     private fun shouldCropSquare(): Boolean {
@@ -843,13 +388,335 @@ class EditActivity : BaseCropActivity() {
         }
     }
 
-    private fun getAreaSize(): Point? {
-        val rect = binding.cropImageView.cropRect ?: return null
+    private fun isJpegFile(): Boolean {
+        val mimeType = contentResolver.getType(uri ?: return false)
+        if (mimeType?.equals("image/jpeg", ignoreCase = true) == true) return true
+        val path = uri?.path?.lowercase() ?: ""
+        return path.endsWith(".jpg") || path.endsWith(".jpeg")
+    }
+
+    private fun isGifFile(): Boolean {
+        val mimeType = contentResolver.getType(uri ?: return false)
+        if (mimeType?.equals("image/gif", ignoreCase = true) == true) return true
+        val path = uri?.path?.lowercase() ?: ""
+        return path.endsWith(".gif")
+    }
+
+    /**
+     * 保存フロー。
+     * 1. 回転・反転のみ（クロップなし）: EXIF Orientation による完全ロスレス（0劣化・瞬時保存）
+     * 2. クロップあり（スナップONのJPEG）: ajpegtran による完全ロスレスビットストリーム切り出し
+     * 3. クロップあり（GIF）: 全フレーム保持のアニメーションロスレス切り出し
+     * 4. その他（スナップOFFのJPEG、PNG等）: 最高画質（Quality 100）切り出し
+     */
+    private fun startSaveFlow(overwrite: Boolean) {
+        overwriteRequested = overwrite
+        setOldExif()
+
+        val wholeRect = binding.cropImageView.wholeImageRect
+        val cropRect = binding.cropImageView.cropRect
         val rotation = binding.cropImageView.rotatedDegrees
-        return if (rotation == 0 || rotation == 180) {
-            Point(rect.width(), rect.height())
+        val isFlippedH = binding.cropImageView.isFlippedHorizontally
+        val isFlippedV = binding.cropImageView.isFlippedVertically
+
+        // クロップ範囲が画像全体とほぼ同一か（微小な誤差許容）
+        val isCropped = cropRect != null && wholeRect != null && (
+            abs(cropRect.left - wholeRect.left) > 4 ||
+            abs(cropRect.top - wholeRect.top) > 4 ||
+            abs(cropRect.width() - wholeRect.width()) > 4 ||
+            abs(cropRect.height() - wholeRect.height()) > 4
+        )
+
+        // 1. クロップなしで回転・反転のみの場合（JPEG）
+        if (!isCropped && isJpegFile()) {
+            saveLosslessOrientationOnly(overwrite, rotation, isFlippedH, isFlippedV)
+            return
+        }
+
+        // 2. GIFアニメーションのクロップ
+        if (isGifFile()) {
+            val targetRect = cropRect ?: wholeRect ?: Rect(0, 0, 100, 100)
+            saveCroppedGif(overwrite, targetRect, rotation)
+            return
+        }
+
+        // 3. JPEG の完全ロスレスクロップ（スナップON）
+        if (isJpegFile() && isSnapEnabled && cropRect != null && wholeRect != null) {
+            val snappedRect = LosslessCropHelper.snapRectToMcu(cropRect, wholeRect.width(), wholeRect.height())
+            saveLosslessJpegCrop(overwrite, snappedRect, rotation, isFlippedH, isFlippedV)
+            return
+        }
+
+        // 4. スナップOFF（自由切り抜き）またはその他のフォーマット（PNG等）
+        cropImage()
+    }
+
+    /**
+     * ピクセルデータに一切触れず、EXIF Orientation のみ更新して瞬時保存（完全ロスレス）
+     */
+    private fun saveLosslessOrientationOnly(
+        overwrite: Boolean,
+        rotationDegrees: Int,
+        isFlippedH: Boolean,
+        isFlippedV: Boolean
+    ) {
+        toast(org.fossify.commons.R.string.saving)
+        ensureBackgroundThread {
+            try {
+                if (overwrite) {
+                    val success = ExifHelper.saveLosslessOrientation(
+                        context = this,
+                        targetUri = saveUri,
+                        rotationDegrees = rotationDegrees,
+                        isFlippedHorizontally = isFlippedH,
+                        isFlippedVertically = isFlippedV
+                    )
+                    runOnUiThread {
+                        if (success) {
+                            scanFinalPath(saveUri.path ?: "")
+                        } else {
+                            // 失敗時は通常保存にフォールバック
+                            cropImage()
+                        }
+                    }
+                } else {
+                    resolveSaveAsPath { destPath ->
+                        ensureBackgroundThread {
+                            try {
+                                val destFile = File(destPath)
+                                copyUriToFile(uri!!, destFile)
+                                val destUri = Uri.fromFile(destFile)
+                                val success = ExifHelper.saveLosslessOrientation(
+                                    context = this,
+                                    targetUri = destUri,
+                                    rotationDegrees = rotationDegrees,
+                                    isFlippedHorizontally = isFlippedH,
+                                    isFlippedVertically = isFlippedV
+                                )
+                                runOnUiThread {
+                                    if (success) {
+                                        scanFinalPath(destPath)
+                                    } else {
+                                        cropImage()
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                runOnUiThread { cropImage() }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread { cropImage() }
+            }
+        }
+    }
+
+    /**
+     * ajpegtran による完全ロスレスクロップ
+     */
+    private fun saveLosslessJpegCrop(
+        overwrite: Boolean,
+        cropRect: Rect,
+        rotationDegrees: Int,
+        isFlippedH: Boolean,
+        isFlippedV: Boolean
+    ) {
+        toast(org.fossify.commons.R.string.saving)
+        ensureBackgroundThread {
+            try {
+                val tempOutputFile = File(cacheDir, "lossless_crop_${System.currentTimeMillis()}.jpg")
+                val tempOutputUri = Uri.fromFile(tempOutputFile)
+
+                val cropSuccess = LosslessCropHelper.cropJpegLossless(
+                    context = this,
+                    inputUri = uri!!,
+                    outputUri = tempOutputUri,
+                    rect = cropRect
+                )
+
+                if (!cropSuccess || !tempOutputFile.exists() || tempOutputFile.length() == 0L) {
+                    // ネイティブ切り出し失敗時は通常保存へ安全にフォールバック
+                    runOnUiThread { cropImage() }
+                    return@ensureBackgroundThread
+                }
+
+                // 回転・反転が指定されている場合はEXIFを更新
+                if (rotationDegrees != 0 || isFlippedH || isFlippedV) {
+                    ExifHelper.saveLosslessOrientation(
+                        context = this,
+                        targetUri = tempOutputUri,
+                        rotationDegrees = rotationDegrees,
+                        isFlippedHorizontally = isFlippedH,
+                        isFlippedVertically = isFlippedV
+                    )
+                }
+
+                if (overwrite) {
+                    resolveUriScheme(
+                        uri = saveUri,
+                        onPath = { path ->
+                            ensureWritablePath(targetPath = path, confirmOverwrite = false) {
+                                val targetFile = File(it)
+                                tempOutputFile.copyTo(targetFile, overwrite = true)
+                                tempOutputFile.delete()
+                                runOnUiThread { scanFinalPath(it) }
+                            }
+                        },
+                        onContentUri = { contentUri ->
+                            contentResolver.openOutputStream(contentUri, "wt")?.use { out ->
+                                FileInputStream(tempOutputFile).use { input ->
+                                    input.copyTo(out)
+                                }
+                            }
+                            tempOutputFile.delete()
+                            runOnUiThread {
+                                setResult(RESULT_OK, intent)
+                                toast(org.fossify.commons.R.string.file_saved)
+                                finish()
+                            }
+                        }
+                    )
+                } else {
+                    resolveSaveAsPath { destPath ->
+                        ensureBackgroundThread {
+                            val targetFile = File(destPath)
+                            tempOutputFile.copyTo(targetFile, overwrite = true)
+                            tempOutputFile.delete()
+                            runOnUiThread { scanFinalPath(destPath) }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread { cropImage() }
+            }
+        }
+    }
+
+    /**
+     * GIFアニメーションの全フレームロスレスクロップ
+     */
+    private fun saveCroppedGif(overwrite: Boolean, cropRect: Rect, rotationDegrees: Int) {
+        toast(org.fossify.commons.R.string.saving)
+        ensureBackgroundThread {
+            try {
+                val tempOutputFile = File(cacheDir, "cropped_gif_${System.currentTimeMillis()}.gif")
+                val fos = FileOutputStream(tempOutputFile)
+
+                val success = GifCropHelper.cropGif(
+                    context = this,
+                    inputUri = uri!!,
+                    outputStream = fos,
+                    cropRect = cropRect,
+                    rotationDegrees = rotationDegrees
+                )
+
+                if (!success || !tempOutputFile.exists() || tempOutputFile.length() == 0L) {
+                    runOnUiThread { cropImage() }
+                    return@ensureBackgroundThread
+                }
+
+                if (overwrite) {
+                    resolveUriScheme(
+                        uri = saveUri,
+                        onPath = { path ->
+                            ensureWritablePath(targetPath = path, confirmOverwrite = false) {
+                                val targetFile = File(it)
+                                tempOutputFile.copyTo(targetFile, overwrite = true)
+                                tempOutputFile.delete()
+                                runOnUiThread { scanFinalPath(it) }
+                            }
+                        },
+                        onContentUri = { contentUri ->
+                            contentResolver.openOutputStream(contentUri, "wt")?.use { out ->
+                                FileInputStream(tempOutputFile).use { input ->
+                                    input.copyTo(out)
+                                }
+                            }
+                            tempOutputFile.delete()
+                            runOnUiThread {
+                                setResult(RESULT_OK, intent)
+                                toast(org.fossify.commons.R.string.file_saved)
+                                finish()
+                            }
+                        }
+                    )
+                } else {
+                    resolveSaveAsPath { destPath ->
+                        ensureBackgroundThread {
+                            val targetFile = File(destPath)
+                            tempOutputFile.copyTo(targetFile, overwrite = true)
+                            tempOutputFile.delete()
+                            runOnUiThread { scanFinalPath(destPath) }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread { cropImage() }
+            }
+        }
+    }
+
+    private fun copyUriToFile(sourceUri: Uri, destFile: File) {
+        val input: InputStream? = if (sourceUri.scheme == "content") {
+            contentResolver.openInputStream(sourceUri)
         } else {
-            Point(rect.height(), rect.width())
+            FileInputStream(File(sourceUri.path ?: ""))
+        }
+        input?.use { inStream ->
+            FileOutputStream(destFile).use { outStream ->
+                inStream.copyTo(outStream)
+            }
+        }
+    }
+
+    override fun onImageCropped(bitmap: Bitmap?, error: Exception?) {
+        if (isFinishing || isDestroyed) return
+        if (error != null || bitmap == null) {
+            toast("${getString(R.string.image_editing_failed)}: ${error?.message}")
+            return
+        }
+
+        setOldExif()
+
+        if (isSharingBitmap) {
+            isSharingBitmap = false
+            shareBitmap(bitmap)
+            return
+        }
+
+        if (isCropIntent) {
+            resolveUriScheme(
+                uri = saveUri,
+                onPath = { saveBitmapToPath(bitmap, it, true) },
+                onContentUri = {
+                    saveBitmapToContentUri(bitmap, it, showSavingToast = true, isCropCommit = true)
+                }
+            )
+            return
+        }
+
+        saveBitmap(overwriteRequested, bitmap, showSavingToast = true)
+    }
+
+    private fun shareImage() {
+        ensureBackgroundThread {
+            if (binding.cropImageView.isVisible()) {
+                isSharingBitmap = true
+                runOnUiThread {
+                    cropImage()
+                }
+            }
+        }
+    }
+
+    private fun shareBitmap(bitmap: Bitmap) {
+        writeBitmapToCache(saveUri, bitmap) {
+            if (it != null) {
+                sharePathIntent(it, BuildConfig.APPLICATION_ID)
+            } else {
+                toast(org.fossify.commons.R.string.unknown_error_occurred)
+            }
         }
     }
 
@@ -897,14 +764,6 @@ class EditActivity : BaseCropActivity() {
         finish()
     }
 
-    private fun freeMemory() {
-        // clean up everything to free as much memory as possible
-        binding.defaultImageView.setImageResource(0)
-        binding.cropImageView.setImageBitmap(null)
-        binding.bottomEditorFilterActions.bottomActionsFilterList.adapter = null
-        binding.bottomEditorFilterActions.bottomActionsFilterList.beGone()
-    }
-
     private fun saveBitmapToPath(bitmap: Bitmap, path: String, showSavingToast: Boolean) {
         try {
             ensureBackgroundThread {
@@ -936,12 +795,8 @@ class EditActivity : BaseCropActivity() {
         }
 
         out.use {
-            if (resizeWidth > 0 && resizeHeight > 0) {
-                val resized = bitmap.scale(resizeWidth, resizeHeight, false)
-                resized.compress(file.absolutePath.getCompressionFormat(), 90, out)
-            } else {
-                bitmap.compress(file.absolutePath.getCompressionFormat(), 90, out)
-            }
+            // ユーザー指定の最高画質（Quality 100）で保存
+            bitmap.compress(file.absolutePath.getCompressionFormat(), 100, out)
         }
 
         writeExif(oldExif, file.toUri())
@@ -974,8 +829,7 @@ class EditActivity : BaseCropActivity() {
                     return@ensureBackgroundThread
                 }
 
-                val quality = if (isCropCommit) 100 else 90
-                bitmap.compress(getCompressionFormatFromUri(uri), quality, out)
+                bitmap.compress(getCompressionFormatFromUri(uri), 100, out)
                 out.flush()
                 writeExif(oldExif, uri)
 

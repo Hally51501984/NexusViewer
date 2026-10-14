@@ -148,6 +148,7 @@ dependencies {
     implementation(libs.android.image.cropper)
     implementation(libs.exif)
     implementation(libs.android.gif.drawable)
+    implementation("io.github.commons-app:ajpegtran:0.1.12")
     implementation(libs.androidx.lifecycle.runtime)
     implementation(libs.androidx.constraintlayout)
     implementation(libs.androidx.documentfile)
