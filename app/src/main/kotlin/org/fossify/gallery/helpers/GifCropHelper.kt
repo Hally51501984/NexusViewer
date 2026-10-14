@@ -2,6 +2,7 @@ package org.fossify.gallery.helpers
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Rect
 import android.net.Uri
@@ -34,7 +35,9 @@ object GifCropHelper {
         inputUri: Uri,
         outputStream: OutputStream,
         cropRect: Rect,
-        rotationDegrees: Int = 0
+        rotationDegrees: Int = 0,
+        wholeImageWidth: Int = 0,
+        wholeImageHeight: Int = 0
     ): Boolean {
         var decoder: GifDecoder? = null
         return try {
@@ -45,10 +48,23 @@ object GifCropHelper {
             val frameCount = decoder.numberOfFrames
             val loopCount = decoder.loopCount
 
-            val safeLeft = cropRect.left.coerceIn(0, imgWidth - 1)
-            val safeTop = cropRect.top.coerceIn(0, imgHeight - 1)
-            val safeWidth = cropRect.width().coerceAtMost(imgWidth - safeLeft)
-            val safeHeight = cropRect.height().coerceAtMost(imgHeight - safeTop)
+            val actualCropRect = if (wholeImageWidth > 0 && wholeImageHeight > 0) {
+                val scaleX = imgWidth.toFloat() / wholeImageWidth.toFloat()
+                val scaleY = imgHeight.toFloat() / wholeImageHeight.toFloat()
+                Rect(
+                    (cropRect.left * scaleX).toInt(),
+                    (cropRect.top * scaleY).toInt(),
+                    (cropRect.right * scaleX).toInt(),
+                    (cropRect.bottom * scaleY).toInt()
+                )
+            } else {
+                cropRect
+            }
+
+            val safeLeft = actualCropRect.left.coerceIn(0, imgWidth - 1)
+            val safeTop = actualCropRect.top.coerceIn(0, imgHeight - 1)
+            val safeWidth = actualCropRect.width().coerceAtMost(imgWidth - safeLeft)
+            val safeHeight = actualCropRect.height().coerceAtMost(imgHeight - safeTop)
 
             if (safeWidth <= 0 || safeHeight <= 0) {
                 return false
@@ -67,6 +83,7 @@ object GifCropHelper {
             } else null
 
             for (i in 0 until frameCount) {
+                frameBitmap.eraseColor(Color.TRANSPARENT)
                 decoder.seekToFrame(i, frameBitmap)
 
                 var croppedBitmap = Bitmap.createBitmap(
@@ -145,6 +162,7 @@ object GifCropHelper {
             }
 
             for (i in 0 until frameCount) {
+                frameBitmap.eraseColor(Color.TRANSPARENT)
                 decoder.seekToFrame(i, frameBitmap)
 
                 val transformedBitmap = Bitmap.createBitmap(

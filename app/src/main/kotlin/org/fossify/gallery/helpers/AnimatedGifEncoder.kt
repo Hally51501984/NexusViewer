@@ -31,6 +31,7 @@ class AnimatedGifEncoder {
     private var firstFrame = true
     private var sizeSet = false
     private var sample = 10
+    private var transparentPixels: ArrayList<Int>? = null
 
     fun setDelay(ms: Int) {
         delay = ms / 10
@@ -136,11 +137,26 @@ class AnimatedGifEncoder {
 
         pixels = ByteArray(rgb.size * 3)
         var count = 0
+        transparentPixels = ArrayList()
+        var hasAlpha = false
         for (i in rgb.indices) {
             val color = rgb[i]
-            pixels!![count++] = (color and 0xFF).toByte()
-            pixels!![count++] = ((color shr 8) and 0xFF).toByte()
-            pixels!![count++] = ((color shr 16) and 0xFF).toByte()
+            val alpha = (color ushr 24) and 0xFF
+            if (alpha < 128) {
+                hasAlpha = true
+                transparentPixels!!.add(i)
+                pixels!![count++] = 0.toByte()      // B
+                pixels!![count++] = 0xFF.toByte()   // G
+                pixels!![count++] = 0.toByte()      // R
+            } else {
+                pixels!![count++] = (color and 0xFF).toByte()
+                pixels!![count++] = ((color shr 8) and 0xFF).toByte()
+                pixels!![count++] = ((color shr 16) and 0xFF).toByte()
+            }
+        }
+
+        if (hasAlpha && transparent == null) {
+            transparent = 0x00FF00
         }
     }
 
@@ -166,6 +182,11 @@ class AnimatedGifEncoder {
 
         if (transparent != null) {
             transIndex = findClosest(transparent!!)
+            if (!transparentPixels.isNullOrEmpty()) {
+                for (idx in transparentPixels!!) {
+                    indexedPixels!![idx] = transIndex.toByte()
+                }
+            }
         }
     }
 
@@ -198,7 +219,7 @@ class AnimatedGifEncoder {
         out!!.write(0xf9)
         out!!.write(4)
         val transp: Int
-        val disp: Int
+        var disp: Int
         if (transparent == null) {
             transp = 0
             disp = 0
@@ -207,7 +228,7 @@ class AnimatedGifEncoder {
             disp = 2
         }
         if (dispose >= 0) {
-            disp == dispose and 7
+            disp = dispose and 7
         }
         out!!.write(0 or (disp shl 2) or 0 or transp)
         writeShort(delay)
@@ -330,9 +351,9 @@ class AnimatedGifEncoder {
             var k = 0
             for (i in 0 until netsize) {
                 val j = index[i]
-                map[k++] = network[j][0].toByte()
-                map[k++] = network[j][1].toByte()
-                map[k++] = network[j][2].toByte()
+                map[k++] = network[j][2].toByte() // Red
+                map[k++] = network[j][1].toByte() // Green
+                map[k++] = network[j][0].toByte() // Blue
             }
             return map
         }

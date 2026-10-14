@@ -229,6 +229,10 @@ class Config(context: Context) : BaseConfig(context) {
         get() = prefs.getBoolean(SCALE_SMALL_MEDIA_TO_SCREEN, true)
         set(scale) = prefs.edit().putBoolean(SCALE_SMALL_MEDIA_TO_SCREEN, scale).apply()
 
+    var rotatePortraitMediaLeft: Boolean
+        get() = prefs.getBoolean(ROTATE_PORTRAIT_MEDIA_LEFT, false)
+        set(rotate) = prefs.edit().putBoolean(ROTATE_PORTRAIT_MEDIA_LEFT, rotate).apply()
+
     var muteVideos: Boolean
         get() = prefs.getBoolean(MUTE_VIDEOS, false)
         set(muteVideos) = prefs.edit().putBoolean(MUTE_VIDEOS, muteVideos).apply()

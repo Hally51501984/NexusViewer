@@ -310,6 +310,9 @@
     <string name="scale_small_media_to_screen">Scale to screen (Contain)</string>
     <string name="scale_to_fit_on">Scale to screen: ON</string>
     <string name="scale_to_fit_off">Scale to screen: OFF (1:1)</string>
+    <string name="rotate_portrait_media_left">Rotate portrait media left</string>
+    <string name="rotate_portrait_left_on">Rotate portrait left: ON</string>
+    <string name="rotate_portrait_left_off">Rotate portrait left: OFF</string>
     <!--
         Haven't found some strings? There's more at
         https://github.com/FossifyOrg/Commons/tree/master/commons/src/main/res

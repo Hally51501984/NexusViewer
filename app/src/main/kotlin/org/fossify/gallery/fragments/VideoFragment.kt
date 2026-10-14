@@ -208,7 +208,11 @@ class VideoFragment : ViewPagerFragment(),
                 cycleRepeatMode()
             }
 
-            videoSurfaceFrame.controller.settings.swallowDoubleTaps = true
+            videoSurfaceFrame.controller.settings.apply {
+                swallowDoubleTaps = true
+                isZoomEnabled = false
+                isRotationEnabled = false
+            }
 
             videoPlayOutline.setOnClickListener {
                 if (mConfig.gestureVideoPlayer) activity.launchGesturePlayer(mMedium.path) else togglePlayPause()
@@ -270,11 +274,10 @@ class VideoFragment : ViewPagerFragment(),
             videoSurfaceFrame.setOnTouchListener { view, event ->
                 val screenWidth = resources.displayMetrics.widthPixels.toFloat()
                 val screenHeight = resources.displayMetrics.heightPixels.toFloat()
-                if (videoSurfaceFrame.controller.state.zoom == 1f) {
-                    handleEvent(event)
+                handleEvent(event)
 
-                    when (event.actionMasked) {
-                        MotionEvent.ACTION_DOWN -> {
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
                             val downRawX = event.rawX
                             val isLeftEdge = downRawX < screenWidth * 0.25f
                             val isRightEdge = downRawX > screenWidth * 0.75f
@@ -396,7 +399,6 @@ class VideoFragment : ViewPagerFragment(),
                             }
                         }
                     }
-                }
 
                 if (mIsTouchInCenter) {
                     handleTouchHoldEvent(event)
@@ -1199,27 +1201,57 @@ class VideoFragment : ViewPagerFragment(),
         val screenProportion = screenWidth.toFloat() / screenHeight.toFloat()
         val scaleToFit = mConfig.scaleSmallMediaToScreen
         val isSmallerThanScreen = mVideoSize.x < screenWidth && mVideoSize.y < screenHeight
+        val rotatePortrait = mConfig.rotatePortraitMediaLeft && mVideoSize.y > mVideoSize.x
 
-        mTextureView.layoutParams.apply {
+        if (rotatePortrait) {
+            mTextureView.rotation = 270f
+            val effectiveProportion = mVideoSize.y.toFloat() / mVideoSize.x.toFloat()
+            val dispW: Int
+            val dispH: Int
             if (!scaleToFit && isSmallerThanScreen && mVideoSize.x > 0 && mVideoSize.y > 0) {
-                // 原寸 (1:1) 表示
-                width = mVideoSize.x
-                height = mVideoSize.y
+                dispW = mVideoSize.y
+                dispH = mVideoSize.x
             } else {
-                // 画面いっぱいまで拡大 (contain)
-                if (videoProportion > screenProportion) {
-                    width = screenWidth
-                    height = (screenWidth.toFloat() / videoProportion).toInt()
+                if (effectiveProportion > screenProportion) {
+                    dispW = screenWidth
+                    dispH = (screenWidth.toFloat() / effectiveProportion).toInt()
                 } else {
-                    width = (videoProportion * screenHeight.toFloat()).toInt()
-                    height = screenHeight
+                    dispW = (effectiveProportion * screenHeight.toFloat()).toInt()
+                    dispH = screenHeight
                 }
             }
-            mTextureView.layoutParams = this
+            mTextureView.layoutParams.apply {
+                width = dispH
+                height = dispW
+                mTextureView.layoutParams = this
+            }
+        } else {
+            mTextureView.rotation = 0f
+            mTextureView.layoutParams.apply {
+                if (!scaleToFit && isSmallerThanScreen && mVideoSize.x > 0 && mVideoSize.y > 0) {
+                    // 原寸 (1:1) 表示
+                    width = mVideoSize.x
+                    height = mVideoSize.y
+                } else {
+                    // 画面いっぱいまで拡大 (contain)
+                    if (videoProportion > screenProportion) {
+                        width = screenWidth
+                        height = (screenWidth.toFloat() / videoProportion).toInt()
+                    } else {
+                        width = (videoProportion * screenHeight.toFloat()).toInt()
+                        height = screenHeight
+                    }
+                }
+                mTextureView.layoutParams = this
+            }
         }
     }
 
     fun applyScaleToFit() {
+        setVideoSize()
+    }
+
+    fun applyRotatePortrait() {
         setVideoSize()
     }
 

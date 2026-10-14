@@ -382,6 +382,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
             updateAutoAdvanceIconColor()
             updateScaleToFitIconColor()
+            updateRotatePortraitIconColor()
 
             if (visibleBottomActions != 0) {
                 updateBottomActionIcons(currentMedium)
@@ -399,6 +400,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         updateMenuItemColors(binding.mediumViewerToolbar.menu, forceWhiteIcons = true)
         updateAutoAdvanceIconColor()
         updateScaleToFitIconColor()
+        updateRotatePortraitIconColor()
         binding.mediumViewerToolbar.setOnMenuItemClickListener { menuItem ->
             if (getCurrentMedium() == null) {
                 return@setOnMenuItemClickListener true
@@ -407,6 +409,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             when (menuItem.itemId) {
                 R.id.menu_auto_advance -> toggleAutoAdvanceStaticImages()
                 R.id.menu_scale_to_fit -> toggleScaleSmallMediaToScreen()
+                R.id.menu_rotate_portrait -> toggleRotatePortraitMediaLeft()
                 R.id.menu_copy_to -> checkMediaManagementAndCopy(true)
                 R.id.menu_move_to -> moveFileTo()
                 R.id.menu_open_with -> openPath(getCurrentPath(), true)
@@ -470,6 +473,22 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun updateScaleToFitIconColor() {
         val color = if (config.scaleSmallMediaToScreen) getProperPrimaryColor() else Color.WHITE
         binding.mediumViewerToolbar.menu.findItem(R.id.menu_scale_to_fit)?.icon?.applyColorFilter(color)
+    }
+
+    /**
+     * 縦長メディアの左回転表示モードのON/OFF切り替え
+     */
+    private fun toggleRotatePortraitMediaLeft() {
+        config.rotatePortraitMediaLeft = !config.rotatePortraitMediaLeft
+        updateRotatePortraitIconColor()
+        toast(if (config.rotatePortraitMediaLeft) R.string.rotate_portrait_left_on else R.string.rotate_portrait_left_off)
+        getCurrentPhotoFragment()?.applyRotatePortrait()
+        (getCurrentFragment() as? VideoFragment)?.applyRotatePortrait()
+    }
+
+    private fun updateRotatePortraitIconColor() {
+        val color = if (config.rotatePortraitMediaLeft) getProperPrimaryColor() else Color.WHITE
+        binding.mediumViewerToolbar.menu.findItem(R.id.menu_rotate_portrait)?.icon?.applyColorFilter(color)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, resultData: Intent?) {
@@ -1334,7 +1353,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         context = this,
                         inputUri = Uri.fromFile(targetFile),
                         outputStream = fos,
-                        cropRect = cropRect
+                        cropRect = cropRect,
+                        wholeImageWidth = wholeRect.width(),
+                        wholeImageHeight = wholeRect.height()
                     )
                     if (success && tempFile.exists() && tempFile.length() > 0) {
                         tempFile.copyTo(targetFile, overwrite = true)

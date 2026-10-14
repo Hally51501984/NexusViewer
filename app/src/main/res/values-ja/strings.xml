@@ -259,4 +259,7 @@
     <string name="scale_small_media_to_screen">画面に合わせて拡大 (Contain)</string>
     <string name="scale_to_fit_on">画面に合わせて拡大: ON</string>
     <string name="scale_to_fit_off">画面に合わせて拡大: OFF (原寸)</string>
+    <string name="rotate_portrait_media_left">縦長メディアを左回転して表示</string>
+    <string name="rotate_portrait_left_on">縦長メディアの左回転表示: ON</string>
+    <string name="rotate_portrait_left_off">縦長メディアの左回転表示: OFF</string>
 </resources>

@@ -14,6 +14,11 @@
         android:title="@string/scale_small_media_to_screen"
         app:showAsAction="always" />
     <item
+        android:id="@+id/menu_rotate_portrait"
+        android:icon="@drawable/ic_rotate_left_vector"
+        android:title="@string/rotate_portrait_media_left"
+        app:showAsAction="always" />
+    <item
         android:id="@+id/menu_delete"
         android:icon="@drawable/ic_delete_vector"
         android:title="@string/delete"

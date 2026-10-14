@@ -63,6 +63,7 @@ import org.fossify.commons.extensions.fadeIn
 import org.fossify.commons.extensions.fadeOut
 import org.fossify.commons.extensions.getProperBackgroundColor
 import org.fossify.commons.extensions.getProperTextColor
+import org.fossify.commons.extensions.getResolution
 import org.fossify.commons.extensions.getRealPathFromURI
 import org.fossify.commons.extensions.isExternalStorageManager
 import org.fossify.commons.extensions.isPathOnOTG
@@ -450,6 +451,7 @@ class PhotoFragment : ViewPagerFragment() {
                 gesturesView.beGone()
                 gifViewFrame.beVisible()
                 applyGifScaleMode()
+                applyRotatePortrait()
                 ensureBackgroundThread {
                     gifView.setInputSource(source)
                 }
@@ -543,6 +545,9 @@ class PhotoFragment : ViewPagerFragment() {
                     isFirstResource: Boolean
                 ): Boolean {
                     applyProperColorMode(resource)
+                    if (context?.config?.rotatePortraitMediaLeft == true) {
+                        applyRotatePortrait()
+                    }
                     val allowZoomingImages = context?.config?.allowZoomingImages ?: true
                     binding.gesturesView.controller.settings.isZoomEnabled = mMedium.isRaw() || mCurrentRotationDegrees != 0 || allowZoomingImages == false
                     if (mIsFragmentVisible && addZoomableView) {
@@ -787,6 +792,9 @@ class PhotoFragment : ViewPagerFragment() {
                     val useWidth = if (mImageOrientation == ORIENTATION_ROTATE_90 || mImageOrientation == ORIENTATION_ROTATE_270) sHeight else sWidth
                     val useHeight = if (mImageOrientation == ORIENTATION_ROTATE_90 || mImageOrientation == ORIENTATION_ROTATE_270) sWidth else sHeight
                     doubleTapZoomScale = getDoubleTapZoomScale(useWidth, useHeight)
+                    if (config.rotatePortraitMediaLeft) {
+                        applyRotatePortrait()
+                    }
                 }
 
                 override fun onImageLoadError(e: Exception) {
@@ -966,6 +974,57 @@ class PhotoFragment : ViewPagerFragment() {
         checkScreenDimensions()
         if (mMedium.isGIF()) {
             applyGifScaleMode()
+        }
+    }
+
+    private fun isMediaPortrait(): Boolean {
+        if (mMedium.isGIF()) {
+            try {
+                val pathToLoad = getPathToLoad(mMedium)
+                val meta = if (pathToLoad.startsWith("content://")) {
+                    GifAnimationMetaData(requireContext().contentResolver, Uri.parse(pathToLoad))
+                } else {
+                    GifAnimationMetaData(File(pathToLoad))
+                }
+                return meta.height > meta.width
+            } catch (_: Exception) {
+                return false
+            }
+        } else {
+            val rotation = degreesForRotation(mImageOrientation)
+            val isRotated90 = rotation == 90 || rotation == 270
+            val res = context?.getResolution(mMedium.path)
+            val origW = res?.x?.takeIf { it > 0 } ?: binding.subsamplingView.sWidth
+            val origH = res?.y?.takeIf { it > 0 } ?: binding.subsamplingView.sHeight
+            val effW = if (isRotated90) origH else origW
+            val effH = if (isRotated90) origW else origH
+            if (effW > 0 && effH > 0) {
+                return effH > effW
+            }
+            val d = binding.gesturesView.drawable
+            if (d != null && d.intrinsicWidth > 0 && d.intrinsicHeight > 0) {
+                return d.intrinsicHeight > d.intrinsicWidth
+            }
+            return false
+        }
+    }
+
+    fun applyRotatePortrait() {
+        if (!mWasInit) return
+        val rotateLeft = context?.config?.rotatePortraitMediaLeft == true
+        if (mMedium.isGIF()) {
+            if (isMediaPortrait() && rotateLeft) {
+                binding.gifViewFrame.rotation = 270f
+            } else {
+                binding.gifViewFrame.rotation = 0f
+            }
+        } else {
+            val shouldBeRotated = isMediaPortrait() && rotateLeft
+            val targetDegrees = if (shouldBeRotated) 270 else 0
+            if (mCurrentRotationDegrees != targetDegrees) {
+                val delta = (targetDegrees - mCurrentRotationDegrees + 360) % 360
+                rotateImageViewBy(delta)
+            }
         }
     }
 
