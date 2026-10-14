@@ -123,6 +123,7 @@ class PhotoFragment : ViewPagerFragment() {
     private var mIsPanorama = false
     private var mIsSubsamplingVisible = false    // checking view.visibility is unreliable, use an extra variable for it
     private var mShouldResetImage = false
+    private var mIsMediaPortrait = false
     private var mCurrentPortraitPhotoPath = ""
     private var mOriginalPath = ""
     private var mImageOrientation = -1
@@ -426,6 +427,10 @@ class PhotoFragment : ViewPagerFragment() {
 
         ensureBackgroundThread {
             mImageOrientation = getImageOrientation()
+            mIsMediaPortrait = checkIsMediaPortrait()
+            val shouldRotateLeft = context?.config?.rotatePortraitMediaLeft == true && mIsMediaPortrait
+            mCurrentRotationDegrees = if (shouldRotateLeft) 270 else 0
+
             activity?.runOnUiThread {
                 when {
                     mMedium.isGIF() -> loadGif()
@@ -545,9 +550,6 @@ class PhotoFragment : ViewPagerFragment() {
                     isFirstResource: Boolean
                 ): Boolean {
                     applyProperColorMode(resource)
-                    if (context?.config?.rotatePortraitMediaLeft == true) {
-                        applyRotatePortrait()
-                    }
                     val allowZoomingImages = context?.config?.allowZoomingImages ?: true
                     binding.gesturesView.controller.settings.isZoomEnabled = mMedium.isRaw() || mCurrentRotationDegrees != 0 || allowZoomingImages == false
                     if (mIsFragmentVisible && addZoomableView) {
@@ -792,9 +794,6 @@ class PhotoFragment : ViewPagerFragment() {
                     val useWidth = if (mImageOrientation == ORIENTATION_ROTATE_90 || mImageOrientation == ORIENTATION_ROTATE_270) sHeight else sWidth
                     val useHeight = if (mImageOrientation == ORIENTATION_ROTATE_90 || mImageOrientation == ORIENTATION_ROTATE_270) sWidth else sHeight
                     doubleTapZoomScale = getDoubleTapZoomScale(useWidth, useHeight)
-                    if (config.rotatePortraitMediaLeft) {
-                        applyRotatePortrait()
-                    }
                 }
 
                 override fun onImageLoadError(e: Exception) {
@@ -977,53 +976,80 @@ class PhotoFragment : ViewPagerFragment() {
         }
     }
 
-    private fun isMediaPortrait(): Boolean {
+    private fun checkIsMediaPortrait(): Boolean {
         if (mMedium.isGIF()) {
-            try {
+            return try {
                 val pathToLoad = getPathToLoad(mMedium)
                 val meta = if (pathToLoad.startsWith("content://")) {
                     GifAnimationMetaData(requireContext().contentResolver, Uri.parse(pathToLoad))
                 } else {
                     GifAnimationMetaData(File(pathToLoad))
                 }
-                return meta.height > meta.width
+                meta.height > meta.width
             } catch (_: Exception) {
-                return false
+                false
             }
-        } else {
+        }
+
+        try {
+            val pathToLoad = getFilePathToShow()
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            if (pathToLoad.startsWith("content://")) {
+                context?.contentResolver?.openInputStream(Uri.parse(pathToLoad))?.use {
+                    BitmapFactory.decodeStream(it, null, options)
+                }
+            } else {
+                BitmapFactory.decodeFile(pathToLoad, options)
+            }
+            val rawW = options.outWidth
+            val rawH = options.outHeight
+
             val rotation = degreesForRotation(mImageOrientation)
             val isRotated90 = rotation == 90 || rotation == 270
-            val res = context?.getResolution(mMedium.path)
-            val origW = res?.x?.takeIf { it > 0 } ?: binding.subsamplingView.sWidth
-            val origH = res?.y?.takeIf { it > 0 } ?: binding.subsamplingView.sHeight
-            val effW = if (isRotated90) origH else origW
-            val effH = if (isRotated90) origW else origH
+            val effW = if (isRotated90) rawH else rawW
+            val effH = if (isRotated90) rawW else rawH
             if (effW > 0 && effH > 0) {
                 return effH > effW
             }
-            val d = binding.gesturesView.drawable
-            if (d != null && d.intrinsicWidth > 0 && d.intrinsicHeight > 0) {
-                return d.intrinsicHeight > d.intrinsicWidth
-            }
-            return false
+        } catch (_: Exception) {}
+
+        val rotation = degreesForRotation(mImageOrientation)
+        val isRotated90 = rotation == 90 || rotation == 270
+        val res = context?.getResolution(mMedium.path)
+        val origW = res?.x?.takeIf { it > 0 } ?: 0
+        val origH = res?.y?.takeIf { it > 0 } ?: 0
+        val effW = if (isRotated90) origH else origW
+        val effH = if (isRotated90) origW else origH
+        if (effW > 0 && effH > 0) {
+            return effH > effW
         }
+
+        return mMedium.isPortrait()
+    }
+
+    private fun isMediaPortrait(): Boolean {
+        return mIsMediaPortrait
     }
 
     fun applyRotatePortrait() {
         if (!mWasInit) return
         val rotateLeft = context?.config?.rotatePortraitMediaLeft == true
+        val shouldBeRotated = isMediaPortrait() && rotateLeft
+        val targetDegrees = if (shouldBeRotated) 270 else 0
+
         if (mMedium.isGIF()) {
-            if (isMediaPortrait() && rotateLeft) {
-                binding.gifViewFrame.rotation = 270f
-            } else {
-                binding.gifViewFrame.rotation = 0f
-            }
+            binding.gifViewFrame.rotation = if (shouldBeRotated) 270f else 0f
+            applyGifScaleMode()
         } else {
-            val shouldBeRotated = isMediaPortrait() && rotateLeft
-            val targetDegrees = if (shouldBeRotated) 270 else 0
             if (mCurrentRotationDegrees != targetDegrees) {
-                val delta = (targetDegrees - mCurrentRotationDegrees + 360) % 360
-                rotateImageViewBy(delta)
+                mCurrentRotationDegrees = targetDegrees
+                if (mIsSubsamplingVisible) {
+                    val rotation = degreesForRotation(mImageOrientation)
+                    var newOrientation = (rotation + mCurrentRotationDegrees) % 360
+                    if (newOrientation < 0) newOrientation += 360
+                    binding.subsamplingView.orientation = newOrientation
+                }
+                loadBitmap(addZoomableView = false)
             }
         }
     }

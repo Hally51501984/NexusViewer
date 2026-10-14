@@ -278,127 +278,133 @@ class VideoFragment : ViewPagerFragment(),
 
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
-                            val downRawX = event.rawX
-                            val isLeftEdge = downRawX < screenWidth * 0.25f
-                            val isRightEdge = downRawX > screenWidth * 0.75f
-                            mIsTouchInCenter = (!isLeftEdge && !isRightEdge)
+                        val downRawX = event.rawX
+                        val isLeftEdge = downRawX < screenWidth * 0.20f
+                        val isRightEdge = downRawX > screenWidth * 0.80f
+                        mIsTouchInCenter = (!isLeftEdge && !isRightEdge)
 
-                            mSeekStartX = event.x
-                            mSeekStartY = event.y
-                            mIsSeeking = false
-                            mIsVerticalScrolling = false
-                            mSeekStartPosition = mExoPlayer?.currentPosition ?: mCurrTime
-                            mTargetSeekPosition = mSeekStartPosition
+                        mSeekStartX = event.x
+                        mSeekStartY = event.y
+                        mIsSeeking = false
+                        mIsVerticalScrolling = false
+                        mSeekStartPosition = mExoPlayer?.currentPosition ?: mCurrTime
+                        mTargetSeekPosition = mSeekStartPosition
 
-                            // 画面左半分（明るさ）または右半分（音量）を判定
-                            mIsBrightnessScroll = (downRawX < screenWidth * 0.5f)
+                        // 画面左半分（明るさ）または右半分（音量）を判定
+                        mIsBrightnessScroll = (downRawX < screenWidth * 0.5f)
 
-                            val windowBrightness = activity.window.attributes.screenBrightness
-                            mTouchDownBrightness = if (windowBrightness >= 0f) {
-                                windowBrightness
+                        val windowBrightness = activity.window.attributes.screenBrightness
+                        mTouchDownBrightness = if (windowBrightness >= 0f) {
+                            windowBrightness
+                        } else {
+                            try {
+                                Settings.System.getInt(
+                                    context.contentResolver,
+                                    Settings.System.SCREEN_BRIGHTNESS
+                                ) / 255f
+                            } catch (e: Exception) {
+                                0.5f
+                            }
+                        }
+
+                        val am = activity.audioManager
+                        mMaxStreamVolume = maxOf(am.getStreamMaxVolume(AudioManager.STREAM_MUSIC), 1)
+                        mTouchDownVolume = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+
+                        gestureDetector.onTouchEvent(event)
+                        if (mIsTouchInCenter) {
+                            handleTouchHoldEvent(event)
+                        }
+                        return@setOnTouchListener true
+                    }
+
+                    MotionEvent.ACTION_MOVE -> {
+                        val dx = event.x - mSeekStartX
+                        val dy = event.y - mSeekStartY
+
+                        // 縦スワイプ（明るさ / 音量）実行中
+                        if (mIsVerticalScrolling) {
+                            val deltaPercent = -(dy / (screenHeight * 0.75f))
+                            if (mIsBrightnessScroll) {
+                                val newBrightness = (mTouchDownBrightness + deltaPercent).coerceIn(0.01f, 1.0f)
+                                val percent = (newBrightness * 100).toInt()
+                                val attributes = activity.window.attributes
+                                attributes.screenBrightness = newBrightness
+                                activity.window.attributes = attributes
+
+                                binding.slideInfo.text = "☀️ 明るさ: $percent%"
                             } else {
-                                try {
-                                    Settings.System.getInt(
-                                        context.contentResolver,
-                                        Settings.System.SCREEN_BRIGHTNESS
-                                    ) / 255f
-                                } catch (e: Exception) {
-                                    0.5f
-                                }
-                            }
+                                val addPoints = (deltaPercent * mMaxStreamVolume).toInt()
+                                val newVolume = (mTouchDownVolume + addPoints).coerceIn(0, mMaxStreamVolume)
+                                activity.audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVolume, 0)
 
-                            val am = activity.audioManager
-                            mMaxStreamVolume = maxOf(am.getStreamMaxVolume(AudioManager.STREAM_MUSIC), 1)
-                            mTouchDownVolume = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+                                val percent = ((newVolume.toFloat() / mMaxStreamVolume.toFloat()) * 100).toInt()
+                                val icon = if (newVolume == 0) "🔇" else "🔊"
+                                binding.slideInfo.text = "$icon 音量: $percent%"
+                            }
+                            binding.slideInfo.alpha = 1f
+                            return@setOnTouchListener true
                         }
 
-                        MotionEvent.ACTION_MOVE -> {
-                            val dx = event.x - mSeekStartX
-                            val dy = event.y - mSeekStartY
+                        // 横スワイプ（シーク）実行中
+                        if (mIsSeeking) {
+                            val maxSeekRange = (mDuration / 3).coerceIn(15_000L, 180_000L).coerceAtLeast(10_000L)
+                            val seekDeltaMs = ((dx / (screenWidth * 0.5f)) * maxSeekRange).toLong()
+                            mTargetSeekPosition = (mSeekStartPosition + seekDeltaMs).coerceIn(0L, mDuration)
 
-                            // 縦スワイプ（明るさ / 音量）実行中
-                            if (mIsVerticalScrolling) {
-                                val deltaPercent = -(dy / (screenHeight * 0.75f))
-                                if (mIsBrightnessScroll) {
-                                    val newBrightness = (mTouchDownBrightness + deltaPercent).coerceIn(0.01f, 1.0f)
-                                    val percent = (newBrightness * 100).toInt()
-                                    val attributes = activity.window.attributes
-                                    attributes.screenBrightness = newBrightness
-                                    activity.window.attributes = attributes
+                            val deltaSec = (mTargetSeekPosition - mSeekStartPosition) / 1000
+                            val sign = if (deltaSec >= 0) "+$deltaSec" else "$deltaSec"
+                            val currentFormatted = mTargetSeekPosition.getFormattedDuration()
+                            val durationFormatted = mDuration.getFormattedDuration()
+                            val icon = if (deltaSec >= 0) "▶▶" else "◀◀"
 
-                                    binding.slideInfo.text = "☀️ 明るさ: $percent%"
-                                } else {
-                                    val addPoints = (deltaPercent * mMaxStreamVolume).toInt()
-                                    val newVolume = (mTouchDownVolume + addPoints).coerceIn(0, mMaxStreamVolume)
-                                    activity.audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVolume, 0)
+                            binding.slideInfo.text = "$icon $sign s\n$currentFormatted / $durationFormatted"
+                            binding.slideInfo.alpha = 1f
 
-                                    val percent = ((newVolume.toFloat() / mMaxStreamVolume.toFloat()) * 100).toInt()
-                                    val icon = if (newVolume == 0) "🔇" else "🔊"
-                                    binding.slideInfo.text = "$icon 音量: $percent%"
-                                }
-                                binding.slideInfo.alpha = 1f
-                                return@setOnTouchListener true
-                            }
-
-                            // 横スワイプ（シーク）実行中
-                            if (mIsSeeking) {
-                                val maxSeekRange = (mDuration / 3).coerceIn(15_000L, 180_000L).coerceAtLeast(10_000L)
-                                val seekDeltaMs = ((dx / (screenWidth * 0.5f)) * maxSeekRange).toLong()
-                                mTargetSeekPosition = (mSeekStartPosition + seekDeltaMs).coerceIn(0L, mDuration)
-
-                                val deltaSec = (mTargetSeekPosition - mSeekStartPosition) / 1000
-                                val sign = if (deltaSec >= 0) "+$deltaSec" else "$deltaSec"
-                                val currentFormatted = mTargetSeekPosition.getFormattedDuration()
-                                val durationFormatted = mDuration.getFormattedDuration()
-                                val icon = if (deltaSec >= 0) "▶▶" else "◀◀"
-
-                                binding.slideInfo.text = "$icon $sign s\n$currentFormatted / $durationFormatted"
-                                binding.slideInfo.alpha = 1f
-
-                                mSeekBar.progress = mTargetSeekPosition.toInt()
-                                mCurrTimeView.text = currentFormatted
-                                return@setOnTouchListener true
-                            }
-
-                            // ジェスチャー判定
-                            if (!mIsLongPressActive) {
-                                // 縦スワイプ判定: 縦の移動量が大きく、横の1.2倍以上
-                                if (abs(dy) > mTouchSlop && abs(dy) > abs(dx) * 1.2f) {
-                                    mIsVerticalScrolling = true
-                                    mTimerHandler.removeCallbacks(mTouchHoldRunnable)
-                                    videoSurfaceFrame.parent?.requestDisallowInterceptTouchEvent(true)
-                                    return@setOnTouchListener true
-                                }
-
-                                // 横シーク判定: 中央領域で、横の移動量が大きく、縦の1.2倍以上
-                                if (mIsTouchInCenter && abs(dx) > mTouchSlop && abs(dx) > abs(dy) * 1.2f) {
-                                    mIsSeeking = true
-                                    mTimerHandler.removeCallbacks(mTouchHoldRunnable)
-                                    videoSurfaceFrame.parent?.requestDisallowInterceptTouchEvent(true)
-                                    return@setOnTouchListener true
-                                }
-                            }
+                            mSeekBar.progress = mTargetSeekPosition.toInt()
+                            mCurrTimeView.text = currentFormatted
+                            return@setOnTouchListener true
                         }
 
-                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                            if (mIsVerticalScrolling) {
-                                mIsVerticalScrolling = false
-                                mSlideInfoFadeHandler.removeCallbacksAndMessages(null)
-                                mSlideInfoFadeHandler.postDelayed({
-                                    binding.slideInfo.animate().alpha(0f).setDuration(300L).start()
-                                }, 800L)
+                        // ジェスチャー判定
+                        if (!mIsLongPressActive) {
+                            // 縦スワイプ判定: 縦の移動量が大きく、横の1.2倍以上
+                            if (abs(dy) > mTouchSlop && abs(dy) > abs(dx) * 1.2f) {
+                                mIsVerticalScrolling = true
+                                mTimerHandler.removeCallbacks(mTouchHoldRunnable)
+                                videoSurfaceFrame.parent?.requestDisallowInterceptTouchEvent(true)
                                 return@setOnTouchListener true
                             }
 
-                            if (mIsSeeking) {
-                                mIsSeeking = false
-                                mExoPlayer?.seekTo(mTargetSeekPosition)
-                                setPosition(mTargetSeekPosition)
-                                binding.slideInfo.animate().alpha(0f).setDuration(300L).start()
+                            // 横シーク判定: 中央領域で、横の移動量が大きく、縦の1.2倍以上
+                            if (mIsTouchInCenter && abs(dx) > mTouchSlop && abs(dx) > abs(dy) * 1.2f) {
+                                mIsSeeking = true
+                                mTimerHandler.removeCallbacks(mTouchHoldRunnable)
+                                videoSurfaceFrame.parent?.requestDisallowInterceptTouchEvent(true)
                                 return@setOnTouchListener true
                             }
                         }
                     }
+
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        if (mIsVerticalScrolling) {
+                            mIsVerticalScrolling = false
+                            mSlideInfoFadeHandler.removeCallbacksAndMessages(null)
+                            mSlideInfoFadeHandler.postDelayed({
+                                binding.slideInfo.animate().alpha(0f).setDuration(300L).start()
+                            }, 800L)
+                            return@setOnTouchListener true
+                        }
+
+                        if (mIsSeeking) {
+                            mIsSeeking = false
+                            mExoPlayer?.seekTo(mTargetSeekPosition)
+                            setPosition(mTargetSeekPosition)
+                            binding.slideInfo.animate().alpha(0f).setDuration(300L).start()
+                            return@setOnTouchListener true
+                        }
+                    }
+                }
 
                 if (mIsTouchInCenter) {
                     handleTouchHoldEvent(event)
@@ -408,7 +414,7 @@ class VideoFragment : ViewPagerFragment(),
                 }
 
                 gestureDetector.onTouchEvent(event)
-                false
+                true
             }
         }
 
@@ -458,6 +464,9 @@ class VideoFragment : ViewPagerFragment(),
             activity.getVideoResolution(mMedium.path)?.apply {
                 mVideoSize.x = x
                 mVideoSize.y = y
+                activity.runOnUiThread {
+                    setVideoSize()
+                }
             }
         }
 
@@ -729,8 +738,11 @@ class VideoFragment : ViewPagerFragment(),
             }
 
             override fun onVideoSizeChanged(videoSize: VideoSize) {
-                mVideoSize.x = videoSize.width
-                mVideoSize.y = (videoSize.height / videoSize.pixelWidthHeightRatio).toInt()
+                val isRotated = videoSize.unappliedRotationDegrees == 90 || videoSize.unappliedRotationDegrees == 270
+                val effW = if (isRotated) (videoSize.height / videoSize.pixelWidthHeightRatio).toInt() else videoSize.width
+                val effH = if (isRotated) videoSize.width else (videoSize.height / videoSize.pixelWidthHeightRatio).toInt()
+                mVideoSize.x = effW
+                mVideoSize.y = effH
                 setVideoSize()
             }
 
